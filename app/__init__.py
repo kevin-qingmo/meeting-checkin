@@ -16,6 +16,16 @@ def create_app(test_config=None):
     if test_config:
         app.config.update(test_config)
 
+    # 生产安全护栏：SECRET_KEY 决定签到码能否被伪造，连接真实数据库时不允许用默认值
+    default_secret = "dev-secret-change-me"
+    uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+    if (uri and not uri.startswith("sqlite")
+            and app.config.get("SECRET_KEY") == default_secret):
+        raise RuntimeError(
+            "SECRET_KEY 仍是默认值，签到码可被伪造，已拒绝启动。"
+            "请在部署平台设置环境变量 SECRET_KEY 为任意随机字符串后重新部署。"
+        )
+
     os.makedirs(app.instance_path, exist_ok=True)
 
     db.init_app(app)

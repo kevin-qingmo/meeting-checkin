@@ -25,6 +25,9 @@ py -3 -m venv .venv
 
 > 手机在同一 WiFi 下访问需用本机内网 IP（如 `http://192.168.1.10:5000/`），
 > 并把 `BASE_URL` 环境变量设为该地址，二维码才能被手机打开。
+>
+> 注意：`gunicorn` 依赖 Unix 的 `fcntl`，**在 Windows 上无法运行**。本地用上面的 Flask 命令即可；
+> 生产环境跑在 Linux 容器（Docker 镜像）里，gunicorn 正常工作。
 
 ## 部署到公网
 
