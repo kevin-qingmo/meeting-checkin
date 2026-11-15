@@ -1,0 +1,78 @@
+from datetime import datetime
+
+from flask import Blueprint, jsonify, request
+from flask_login import current_user, login_required
+
+from ..access import get_managed_activity, live_payload
+from ..extensions import db
+from ..models import CheckIn
+
+bp = Blueprint("api", __name__)
+
+
+@bp.route("/api/health")
+def health():
+    return jsonify({"ok": True, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
+
+@bp.route("/api/activity/<int:activity_id>/live")
+@login_required
+def live(activity_id):
+    act = get_managed_activity(activity_id)
+    return jsonify(live_payload(act))
+
+
+@bp.route("/api/activity/<int:activity_id>/manual", methods=["POST"])
+@login_required
+def manual_checkin(activity_id):
+    act = get_managed_activity(activity_id)
+    name = (request.form.get("name") or "").strip()
+    phone = (request.form.get("phone") or "").strip()
+    campus = (request.form.get("campus") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "message": "请填写姓名"}), 400
+    if not campus:
+        return jsonify({"ok": False, "message": "请选择校区"}), 400
+
+    checked_in_at = _parse_dt(request.form.get("checked_in_at")) or datetime.now()
+    checked_out_at = _parse_dt(request.form.get("checked_out_at"))
+
+    record = CheckIn(
+        activity_id=act.id,
+        name=name,
+        phone=phone,
+        campus=campus,
+        code_used="补录",
+        mode="in",
+        source="manual",
+        checked_in_at=checked_in_at,
+        checked_out_at=checked_out_at,
+        operator_id=current_user.id,
+    )
+    db.session.add(record)
+    db.session.commit()
+    return jsonify({"ok": True, "message": "已补录 {} 的签到记录".format(name), "id": record.id})
+
+
+@bp.route("/api/checkin/<int:checkin_id>/delete", methods=["POST"])
+@login_required
+def delete_checkin(checkin_id):
+    record = db.session.get(CheckIn, checkin_id)
+    if record is None:
+        return jsonify({"ok": False, "message": "记录不存在"}), 404
+    get_managed_activity(record.activity_id)
+    db.session.delete(record)
+    db.session.commit()
+    return jsonify({"ok": True, "message": "已删除该条记录"})
+
+
+def _parse_dt(raw):
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None

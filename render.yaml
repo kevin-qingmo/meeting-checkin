@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: checkin-web
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      # 部署成功后请手动改成你的域名，例如 https://checkin-web.up.railway.app
+      - key: BASE_URL
+        sync: false

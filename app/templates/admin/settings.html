@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}字典设置 · 会议扫码签到系统{% endblock %}
+{% block content %}
+<h2 style="margin:0 0 4px;color:#fff;font-size:20px">校区 / 学段 / 学科字典</h2>
+<div class="muted small" style="margin-bottom:18px">每行一个选项，保存后立即生效（不影响已有活动的历史记录）。</div>
+
+<form method="post">
+  <div class="grid grid-3">
+    <div class="card">
+      <h2>校区</h2>
+      <div class="field"><textarea rows="8" name="campuses">{% for c in campuses %}{{ c.name }}
+{% endfor %}</textarea></div>
+    </div>
+    <div class="card">
+      <h2>学段</h2>
+      <div class="field"><textarea rows="8" name="stages">{% for s in stages %}{{ s.name }}
+{% endfor %}</textarea></div>
+    </div>
+    <div class="card">
+      <h2>学科</h2>
+      <div class="field"><textarea rows="8" name="subjects">{% for j in subjects %}{{ j.name }}
+{% endfor %}</textarea></div>
+    </div>
+  </div>
+  <div style="margin-top:16px"><button class="btn" type="submit">保存字典</button></div>
+</form>
+{% endblock %}

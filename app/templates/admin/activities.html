@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}活动管理 · 会议扫码签到系统{% endblock %}
+{% block content %}
+<div class="row" style="align-items:center;margin-bottom:18px">
+  <div style="flex:3">
+    <h2 style="margin:0;color:#fff;font-size:20px">活动管理</h2>
+    <div class="muted small">创建会议 / 活动 → 生成扫码大屏 → 实时查看签到签离</div>
+  </div>
+  <div style="flex:0;text-align:right">
+    <a class="btn" href="{{ url_for('admin.activity_new') }}">＋ 新建活动</a>
+  </div>
+</div>
+
+<div class="card">
+  {% if rows %}
+  <table>
+    <thead>
+      <tr>
+        <th>活动名称</th><th>时间</th><th>地点</th><th>应到</th><th>实到</th><th>已签离</th><th>状态</th><th class="right">操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>
+          <div class="act-title">{{ row.activity.title }}</div>
+          <div class="act-meta">
+            {% for c in row.activity.campuses %}<span class="tag">{{ c }}</span> {% endfor %}
+            {% for s in row.activity.stages %}<span class="tag y">{{ s }}</span> {% endfor %}
+            {% for j in row.activity.subjects %}<span class="tag g">{{ j }}</span> {% endfor %}
+          </div>
+        </td>
+        <td class="small">{{ row.activity.start_at|dt }}<br><span class="muted">至 {{ row.activity.end_at|dt }}</span></td>
+        <td class="small">{{ row.activity.location or '—' }}</td>
+        <td><span class="kpi">{{ row.stats.expected }}</span></td>
+        <td><span class="kpi">{{ row.stats.checked_in }}</span></td>
+        <td><span class="kpi g">{{ row.stats.checked_out }}</span></td>
+        <td>
+          {% if row.activity.is_archived %}<span class="tag r">已归档</span>
+          {% elif row.activity.need_checkout %}<span class="tag y">需签离</span>
+          {% else %}<span class="tag g">进行中</span>{% endif %}
+        </td>
+        <td class="right small">
+          <a class="btn btn-sm" href="{{ url_for('admin.dashboard', activity_id=row.activity.id) }}">后台</a>
+          <a class="btn btn-sm btn-green" href="{{ url_for('board.screen', activity_id=row.activity.id) }}" target="_blank">大屏</a>
+          <a class="btn btn-sm btn-ghost" href="{{ url_for('admin.activity_edit', activity_id=row.activity.id) }}">编辑</a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">还没有活动，点击右上角「新建活动」开始。</div>
+  {% endif %}
+</div>
+{% endblock %}

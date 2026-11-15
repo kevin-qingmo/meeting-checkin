@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ activity.title }} · 签到大屏{% endblock %}
+{% block bodyclass %}board-page{% endblock %}
+{% block topbar %}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/board.css') }}">
+{% endblock %}
+{% block content %}
+<div class="board">
+  <header class="board-head">
+    <h1>{{ activity.title }}</h1>
+    <div class="board-sub">
+      {{ (activity.subjects | join('、')) or '不限学科' }} ·
+      {{ activity.start_at.strftime('%Y-%m-%d') }} ·
+      {{ activity.location or '地点待定' }}
+    </div>
+    <div class="mode-badge {{ 'out' if mode == 'out' else 'in' }}" id="mode-badge">
+      {{ '签离模式' if mode == 'out' else '签到模式' }}
+    </div>
+  </header>
+
+  {% if status == 'not_started' %}
+  <div class="board-warn">⏰ 活动未在开放时间内，当前不可签到，签到时间为：
+    <b>{{ activity.start_at.strftime('%Y-%m-%d %H:%M') }}</b> 至 {{ activity.end_at.strftime('%Y-%m-%d %H:%M') }}</div>
+  {% elif status == 'ended' %}
+  <div class="board-warn">⏰ 活动已结束，当前不可签到。</div>
+  {% endif %}
+
+  <div class="board-main">
+    <section class="qr-card">
+      <div class="qr-frame">
+        <img id="qr-img" src="{{ url_for('board.qr_png', activity_id=activity.id) }}?cycle={{ cycle }}&mode=in" alt="签到二维码">
+      </div>
+      <div class="qr-tip">手机流量扫码</div>
+      <div class="qr-hint">请使用手机流量扫描签到（关闭单位 WiFi）</div>
+      <div class="site-code-label">现场码</div>
+      <div class="site-code" id="site-code">{{ site_code }}</div>
+      <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
+      <div class="refresh-tip" id="refresh-tip">二维码 20 秒后自动刷新</div>
+    </section>
+
+    <section class="board-side">
+      <div class="stat-row">
+        <div class="stat-card blue">
+          <div class="num" id="stat-in">{{ live.checked_in }}</div>
+          <div class="lbl">已签到</div>
+        </div>
+        <div class="stat-card green">
+          <div class="num" id="stat-out">{{ live.checked_out }}</div>
+          <div class="lbl">已签离</div>
+        </div>
+      </div>
+
+      <div class="feed">
+        <div class="feed-head">最新动态</div>
+        <div class="feed-list" id="feed-list">
+          {% for r in live.records %}
+          <div class="feed-row">
+            <span class="who">{{ r.name }}</span>
+            <span class="campus">{{ r.campus }}</span>
+            <span class="time">{{ r.checked_in_at }}</span>
+            <span class="tag g">{{ '已签离' if r.checked_out_at else '已签到' }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="board-foot">
+    <button class="switch-mode" id="switch-mode">{% if mode == 'out' %}切换为签到模式{% else %}切换为签离模式{% endif %}</button>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ACTIVITY_ID = {{ activity.id }};
+const INITIAL_MODE = "{{ mode }}";
+</script>
+<script src="{{ url_for('static', filename='js/board.js') }}"></script>
+{% endblock %}

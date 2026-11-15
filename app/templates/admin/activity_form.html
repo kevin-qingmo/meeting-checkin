@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% set sel_c = activity.campuses if activity else [] %}
+{% set sel_s = activity.stages if activity else [] %}
+{% set sel_j = activity.subjects if activity else [] %}
+{% block title %}{{ '编辑活动' if activity else '新建活动' }} · 会议扫码签到系统{% endblock %}
+{% block content %}
+<h2 style="margin:0 0 4px;color:#fff;font-size:20px">{{ '编辑活动' if activity else '新建活动' }}</h2>
+<div class="muted small" style="margin-bottom:18px">设置参与范围、时间与地点；创建后可在后台导入名册并打开签到大屏。</div>
+
+<form method="post">
+  <div class="card">
+    <h2>基本信息</h2>
+    <div class="sub">活动名称、地点、开始与结束时间</div>
+
+    <div class="field">
+      <label>活动名称 *</label>
+      <input type="text" name="title" required value="{{ activity.title if activity else '' }}"
+             placeholder="如：小学语文骨干研修班研修活动">
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>开始时间 *</label>
+        <input type="datetime-local" name="start_at" required
+               value="{{ activity.start_at.strftime('%Y-%m-%dT%H:%M') if activity else '' }}">
+      </div>
+      <div class="field">
+        <label>结束时间 *</label>
+        <input type="datetime-local" name="end_at" required
+               value="{{ activity.end_at.strftime('%Y-%m-%dT%H:%M') if activity else '' }}">
+      </div>
+    </div>
+
+    <div class="field">
+      <label>活动地点</label>
+      <input type="text" name="location" value="{{ activity.location if activity else '' }}"
+             placeholder="如：和慧南路校区 报告厅">
+    </div>
+
+    <div class="field">
+      <label class="switch">
+        <input type="checkbox" name="need_checkout" {{ 'checked' if activity and activity.need_checkout else '' }}>
+        <span>需要签离（活动结束时再扫一次码确认离场）</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>参与范围</h2>
+    <div class="sub">可多选；用于筛选与后续统计（不影响签到权限）</div>
+
+    <div class="field">
+      <label>涉及校区</label>
+      <div class="checks">
+        {% for c in campuses %}
+        <label class="check {{ 'on' if c.name in sel_c else '' }}">
+          <input type="checkbox" name="campus_ids" value="{{ c.name }}" {{ 'checked' if c.name in sel_c else '' }}>
+          {{ c.name }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="field">
+      <label>涉及学段</label>
+      <div class="checks">
+        {% for s in stages %}
+        <label class="check {{ 'on' if s.name in sel_s else '' }}">
+          <input type="checkbox" name="stage_ids" value="{{ s.name }}" {{ 'checked' if s.name in sel_s else '' }}>
+          {{ s.name }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="field">
+      <label>涉及学科</label>
+      <div class="checks">
+        {% for j in subjects %}
+        <label class="check {{ 'on' if j.name in sel_j else '' }}">
+          <input type="checkbox" name="subject_ids" value="{{ j.name }}" {{ 'checked' if j.name in sel_j else '' }}>
+          {{ j.name }}
+        </label>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:18px">
+    <div style="flex:0">
+      <button class="btn" type="submit">{{ '保存修改' if activity else '创建活动' }}</button>
+    </div>
+    <div style="flex:0">
+      <a class="btn btn-ghost" href="{{ url_for('admin.activities') }}">返回</a>
+    </div>
+    {% if activity %}
+    <div style="flex:0">
+      <a class="btn btn-green" href="{{ url_for('board.screen', activity_id=activity.id) }}" target="_blank">打开签到大屏</a>
+    </div>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}账号管理 · 会议扫码签到系统{% endblock %}
+{% block content %}
+<h2 style="margin:0 0 4px;color:#fff;font-size:20px">管理员账号</h2>
+<div class="muted small" style="margin-bottom:18px">每位教师可登录创建并管理自己的活动；超级管理员可管理全部活动与账号。</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h2>新建账号</h2>
+    <div class="sub">密码至少 6 位</div>
+    <form method="post">
+      <input type="hidden" name="action" value="create">
+      <div class="field"><label>用户名 *</label><input type="text" name="username" required></div>
+      <div class="field"><label>姓名 *</label><input type="text" name="display_name" required></div>
+      <div class="field"><label>初始密码 *</label><input type="text" name="password" required minlength="6"></div>
+      <button class="btn" type="submit">创建账号</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>账号列表</h2>
+    <table>
+      <thead><tr><th>用户名</th><th>姓名</th><th>角色</th><th>状态</th><th class="right">操作</th></tr></thead>
+      <tbody>
+      {% for u in users %}
+        <tr>
+          <td>{{ u.username }}</td>
+          <td>{{ u.display_name }}</td>
+          <td>{% if u.is_super %}<span class="tag g">超级管理员</span>{% else %}<span class="tag">管理员</span>{% endif %}</td>
+          <td>{% if u.active %}<span class="tag g">启用</span>{% else %}<span class="tag r">停用</span>{% endif %}</td>
+          <td class="right small">
+            {% if u.id != current_user.id %}
+            <form method="post" style="display:inline"><input type="hidden" name="action" value="role"><input type="hidden" name="uid" value="{{ u.id }}"><button class="btn btn-sm btn-ghost">改角色</button></form>
+            <form method="post" style="display:inline"><input type="hidden" name="action" value="toggle"><input type="hidden" name="uid" value="{{ u.id }}"><button class="btn btn-sm btn-ghost">{{ '停用' if u.active else '启用' }}</button></form>
+            {% else %}<span class="muted">当前账号</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>重置密码</h2>
+  <div class="sub">为指定账号设置新密码</div>
+  <form method="post" class="row" style="align-items:flex-end">
+    <input type="hidden" name="action" value="reset">
+    <div class="field"><label>账号</label>
+      <select name="uid" required>
+        {% for u in users %}<option value="{{ u.id }}">{{ u.username }}（{{ u.display_name }}）</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label>新密码</label><input type="text" name="password" required minlength="6"></div>
+    <div style="flex:0"><button class="btn" type="submit">重置密码</button></div>
+  </form>
+</div>
+{% endblock %}
