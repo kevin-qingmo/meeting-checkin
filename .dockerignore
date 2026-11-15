@@ -10,3 +10,7 @@ instance/
 .git/
 .gitignore
 docs/
+_screenshots/
+tests/
+tools/
+deploy/
