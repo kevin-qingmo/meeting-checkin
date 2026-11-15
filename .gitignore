@@ -10,5 +10,6 @@ instance/
 .DS_Store
 docs/
 
-# Railway CLI 登录日志（临时产物）
+# Railway CLI 登录日志（临时产物，含口令，不要提交）
 login*.log
+tunnel.log

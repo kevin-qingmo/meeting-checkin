@@ -113,11 +113,19 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
 ```
 
 - **跨实例一致性**：`tools/cross_instance_check.py` —— 实例 A 出码 → 实例 B 校验落库 → A 读回计数=1 → 错码被拒。这是多进程部署正确性的关键证据。
-- **公网实例端到端**：`tools/e2e_public.py <BASE_URL> <用户名> <密码>` —— 登录 → 建活动 → 大屏出码 → 扫码签到 → 错码被拒 → 实时统计 → 导出 Excel，7 项断言。
+- **公网实例端到端**：`tools/e2e_public.py <BASE_URL> <用户名> <密码>` —— 登录 → 建活动 → 大屏出码 → 扫码签到 → 错码被拒 → 实时统计 → 导出 Excel → 切模式换码 → 跨模式码被拒 → 删除活动（级联 + 404），共 18 项断言。
   ```powershell
   & '.\.venv\Scripts\python.exe' tools\e2e_public.py https://web-production-9fe1faa8.up.railway.app admin <密码>
   ```
-- **浏览器端到端**：`tools/ui_check.js` / `tools/ui_check_bar.js`（puppeteer-core + Edge），截图产物在 `_screenshots/`。
+- **不掌握用户密码时怎么验生产库**（用户已改过 admin 密码时）：
+  1. `ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\railway_verify_ed25519 -N '""'`（`.ssh` 目录可能不存在，要先建）
+  2. `railway ssh keys add --key <公钥路径> --name mcode-verify-temp`（注册到 Railway 账号）
+  3. `railway connect Postgres --tunnel-only --port 15432` → 输出 `postgresql://postgres:<口令>@127.0.0.1:15432/railway`
+  4. 用该 URL 设 `DATABASE_URL` 跑 `tools/prod_temp_admin.py create/delete <用户名> <口令>`（直连 psycopg 建临时超管）
+  5. 用临时账号跑 `tools/e2e_public.py`，验完 `delete` 掉临时账号
+  6. 收尾：`railway ssh keys remove <指纹>` + 停 ssh 进程 + 删本地密钥
+  - **坑**：隧道日志文件（`> tunnel.log`）会被进程长期占用删不掉，且**里面有数据库口令** → 务必 gitignore，退出后让用户手动删，或直接轮换口令。
+- **浏览器端到端**：`tools/ui_check.js` / `tools/ui_check_bar.js` / `tools/ui_check_mode.js`（puppeteer-core + Edge），截图产物在 `_screenshots/`。
   - puppeteer-core：`D:/软件/MiniMax/.minimax/skills/house-plan-designer/scripts/node_modules/puppeteer-core`
   - Edge：`C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe`
 
