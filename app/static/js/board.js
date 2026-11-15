@@ -33,8 +33,9 @@
   }
 
   function paintBar(elapsed) {
-    const pct = Math.min(100, (elapsed / cycleSeconds) * 100);
-    barFill.style.width = pct + '%';
+    // 倒计时：蓝色块贴左端，右边缘随剩余时间从右向左退缩
+    const remain = Math.max(0, Math.min(1, (cycleSeconds - elapsed) / cycleSeconds));
+    barFill.style.width = (remain * 100).toFixed(2) + '%';
     const left = Math.max(0, Math.ceil(cycleSeconds - elapsed));
     refreshTip.textContent = `二维码 ${left} 秒后自动刷新`;
   }

@@ -22,8 +22,11 @@
 .qr-hint{margin-top:4px;font-size:14px;color:#64748b}
 .site-code-label{margin-top:20px;font-size:15px;color:#64748b}
 .site-code{font-size:46px;font-weight:800;letter-spacing:10px;color:#2563eb;font-variant-numeric:tabular-nums}
-.bar{height:9px;border-radius:99px;background:#e2e8f0;overflow:hidden;margin:12px 6px 8px}
-.bar-fill{height:100%;width:0;background:linear-gradient(90deg,#2563eb,#3b82f6);border-radius:99px;transition:width .25s linear}
+/* 倒计时条：蓝色贴左端，右边缘随剩余时间从右向左退缩 */
+.bar{height:9px;border-radius:99px;background:#e2e8f0;overflow:hidden;margin:12px 6px 8px;
+  display:flex;justify-content:flex-start}
+.bar-fill{height:100%;width:100%;background:linear-gradient(90deg,#2563eb,#3b82f6);
+  border-radius:99px;transition:width .25s linear}
 .refresh-tip{font-size:13px;color:#94a3b8}
 
 .board-side{display:flex;flex-direction:column;gap:18px}
