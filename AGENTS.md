@@ -35,7 +35,9 @@ cd "D:\MiniMax工作站\签到系统"
 .\deploy\一键部署.ps1
 ```
 
-脚本流程：装 CLI → 登录 → 建项目 → 挂 Postgres → 设 `SECRET_KEY`/`ADMIN_PASSWORD` → `railway up` → 关联 GitHub 仓库（push 自动部署）→ 生成域名并回填 `BASE_URL` → 健康检查。
+脚本流程：装 CLI → 登录（GitHub 或邮箱）→ 建项目 → 挂 Postgres → 建 `web` 服务 →
+设 `DATABASE_URL`(引用变量)/`SECRET_KEY`/`ADMIN_PASSWORD` → `railway up --service web` →
+关联 GitHub 仓库（push 自动部署）→ 生成域名（**必须 `--port 8000`**）并回填 `BASE_URL` → 健康检查。
 
 用户手册见 `deploy\部署指南.md`。
 
@@ -44,14 +46,36 @@ cd "D:\MiniMax工作站\签到系统"
 ### Railway / OAuth 授权
 
 - **内置浏览器面板（Electron FilePanel）里 GitHub 的 Authorize 按钮永远是 `disabled`**——GitHub 服务端反自动化锁定。改 DOM 去 disabled、`requestSubmit` 都无效。
-- **内置浏览器的 `run_script` 整体失效**：`page.evaluate` 根本不执行（返回 `pageEvaluate.calls: 0`、`logs: []`），连 `document.title='x'` 都不生效。**不要用 run_script 在内置浏览器做 DOM/JS 操作**。
-- **正解**：让用户在自己电脑的真实 Edge 点一次。从助手进程用 `Start-Process '<url>'` 拉起默认浏览器即可。
+- **内置浏览器的 `run_script` 之前被判"整体失效"是误判，真因是包装语法**：
+  `run_script` 的 code 参数是**函数体**，不是函数声明。
+  - 写 `async function (page) { ... }` → `SyntaxError: Function statements require a function name`
+  - 写 `async (page) => { ... }` → 能 parse，但没被调用 → `pageEvaluate.calls: 0`
+  - **正确写法：裸语句体**，`const r = await page.evaluate(() => ({...})); return r;` → `pageEvaluate.calls: 1` 且返回值能透出
+- **正解仍然是让用户在自己电脑的真实 Edge 登录**（Railway 账号走邮箱登录最稳，见下）。
 - **CLI 等待回调的后台任务 timeout 必须 ≥1800s**：默认 60s 前台超时会被掐断，报 "Device code expired"。设备码本身有效期约 10 分钟。
+- **`railway login` 的浏览器授权窗口只有 5 分钟**：日志报 `Authentication timed out - no callback received after 5 minutes`，超时要重跑命令。
+- **抓 CLI 打印的授权 URL**：别用 `| Out-String`（会缓冲到进程结束才输出）。改成
+  `Start-Process cmd.exe -ArgumentList '/c','railway login > login.log 2>&1'`，再直接读 `login.log`。
 - **Railway CLI v5.74 命令备忘**：
   - 有：`add --database postgres`（**没有** `add --plugin`）
-  - 有：`variables list --json`（**没有** `variables get`）
-  - 有：`init --name X` / `up --detach --yes` / `domain --json` / `service list --json` / `service source connect --repo owner/repo --branch main --service NAME`
+  - 有：`variables list --json`（**没有** `variables get`）、`variables set --service web K=V`
+  - 有：`init --name X` / `up --service web --detach --yes` / `domain --json` / `domain update <域名> --port 8000 --service web` / `service list --json` / `service source connect --repo owner/repo --branch main --service NAME`
   - 认证失败时统一报 `Unauthorized. Please login with 'railway login'`，exit code 1。
+- **Railway 新运行时（v2 runtime）不注入 `PORT` 环境变量**：gunicorn `--bind 0.0.0.0:$PORT` 会退回默认 8000，
+  而域名默认指向 8080 → **一直 502 Application failed to respond**（容器内 gunicorn 日志显示 8000 端口正常监听，但访问日志为空 = 请求根本没进来）。
+  解法：`railway domain update <域名> --port 8000 --service web`（网页版：Settings → Networking → Target Port 改 8000）。
+- **Railway 数据库插件不会自动把 `DATABASE_URL` 注入到应用服务**：必须手工建引用变量
+  `DATABASE_URL=${{Postgres.DATABASE_URL}}`（命令行注意 `$` 要转义成 `` `$ ``）。
+
+### 本机网络环境（2026-11-16 实测）
+
+- **github.com 被 DNS 污染**：解析到 `57.155.223.240`，443 不通，git/网页都连不上；
+  真实 IP `140.82.112.4` / `140.82.114.4` 可以连通（`curl --resolve github.com:443:140.82.112.4` 验证过）。
+- **改 hosts 需要管理员权限**，`Add-Content C:\Windows\System32\drivers\etc\hosts` 被拒。
+- 结论：**这台机器上任何依赖 GitHub 网页/授权的流程都可能卡死**（含 GitHub OAuth 按钮点不动这个假象）。
+  Railway 本身通畅（`backboard.railway.com` 200），**走 Railway 邮箱登录（Log in using email）可绕开 GitHub**。
+- `git push` 在 GitHub 不通时同样失败 → 部署改用 `railway up` 直接上传源码，不依赖 GitHub。
+
 
 ### Windows / PowerShell
 
@@ -66,6 +90,8 @@ cd "D:\MiniMax工作站\签到系统"
 
 - **Flask 3 默认把 JSON 中文转义成 `\uXXXX`** → `app/__init__.py` 里设 `app.json.ensure_ascii = False`。
 - **`gunicorn` 在 Windows 上跑不了**（`ModuleNotFoundError: No module named 'fcntl'`，Unix-only）。本地用 Flask 开发服务器，生产在 Linux 容器内用 gunicorn。
+- **SQLAlchemy 走 `postgresql://` 默认用 psycopg v3**：只装 `psycopg2-binary` 会在生产报
+  `ModuleNotFoundError: No module named 'psycopg'`。`requirements.txt` 必须有 `psycopg[binary]==3.2.3`。
 - **pip 默认源安装超时（300s）** → 用 `-i https://pypi.tuna.tsinghua.edu.cn/simple`。
 - **urllib 跟随重定向会丢 `Set-Cookie`** → 会话类脚本用 `http.cookiejar.CookieJar`（`tools/cross_instance_check.py` 已改）。
 - 本机 Python：`D:\MiniMax工作站\签到系统\.venv\Scripts\python.exe`（Python 3.14.5）。启动服务：
@@ -83,9 +109,22 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
 ```
 
 - **跨实例一致性**：`tools/cross_instance_check.py` —— 实例 A 出码 → 实例 B 校验落库 → A 读回计数=1 → 错码被拒。这是多进程部署正确性的关键证据。
+- **公网实例端到端**：`tools/e2e_public.py <BASE_URL> <用户名> <密码>` —— 登录 → 建活动 → 大屏出码 → 扫码签到 → 错码被拒 → 实时统计 → 导出 Excel，7 项断言。
+  ```powershell
+  & '.\.venv\Scripts\python.exe' tools\e2e_public.py https://web-production-9fe1faa8.up.railway.app admin <密码>
+  ```
 - **浏览器端到端**：`tools/ui_check.js` / `tools/ui_check_bar.js`（puppeteer-core + Edge），截图产物在 `_screenshots/`。
   - puppeteer-core：`D:/软件/MiniMax/.minimax/skills/house-plan-designer/scripts/node_modules/puppeteer-core`
   - Edge：`C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe`
+
+## 线上实例（2026-11-16 已上线）
+
+- 网址：`https://web-production-9fe1faa8.up.railway.app`
+- 项目 `meeting-checkin`（workspace `kevin-qingmo's Projects`），服务：`web` + `Postgres`
+- admin 初始密码 `mc-80yn1w8bp1`（用户首次登录后应自行修改）
+- 域名 target port 固定 8000；`DATABASE_URL` 用引用变量 `${{Postgres.DATABASE_URL}}`
+- 首次部署留下的两条「上线验收测试」活动已归档（列表里显示"已归档"），不影响使用
+
 
 ## 配色约定
 
@@ -102,6 +141,6 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
 | `app/codes.py` | HMAC 派生签到码与现场码 |
 | `app/models.py` | User / Activity / Roster / CheckIn / Setting |
 | `seed.py` | 建超管 admin + 预置三校区/三学段/15 学科字典 |
-| `tools/` | demo_data / ui_check / ui_check_bar / cross_instance_check |
+| `tools/` | demo_data / ui_check / ui_check_bar / cross_instance_check / e2e_public |
 | `deploy/` | 部署指南.md + 一键部署.ps1 |
 | `docs/superpowers/` | 设计文档与实现计划（gitignore 了） |

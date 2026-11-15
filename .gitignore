@@ -9,3 +9,6 @@ instance/
 .env
 .DS_Store
 docs/
+
+# Railway CLI 登录日志（临时产物）
+login*.log

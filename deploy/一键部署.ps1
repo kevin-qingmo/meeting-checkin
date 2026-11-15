@@ -46,10 +46,10 @@ Ok "Railway CLI $(railway --version)"
 # ---------- 2. 登录 ----------
 $null = railway whoami 2>&1
 if ($LASTEXITCODE -ne 0) {
-    Say "需要登录 Railway。接下来会弹出 Edge，请在页面里点 GitHub 的 Authorize（只需这一次）。"
+    Say "需要登录 Railway。接下来会弹出 Edge，请完成登录（5 分钟内有效）。"
     Write-Host ""
-    Write-Host "    若浏览器没自动弹出、或 GitHub 按钮点不动，" -ForegroundColor DarkGray
-    Write-Host "    请手动打开 https://railway.com/activate ，输入命令行显示的验证码。" -ForegroundColor DarkGray
+    Write-Host "    页面里优先点 GitHub 授权；如果这台机器连不上 GitHub（国内常见 DNS 污染），" -ForegroundColor DarkGray
+    Write-Host "    就点页面底部的「Log in using email」，输入邮箱后点邮件里的登录链接即可。" -ForegroundColor DarkGray
     Write-Host ""
     railway login
     if ($LASTEXITCODE -ne 0) {
@@ -80,59 +80,74 @@ if ($LASTEXITCODE -ne 0) {
 Ok "项目就绪"
 
 # ---------- 5. Postgres（必须在首次构建前挂上，否则首启会因缺 DATABASE_URL 失败） ----------
-$varsRaw = railway variables list --json 2>$null | Out-String
+$varsRaw = railway variables list --service web --json 2>$null | Out-String
 if ($varsRaw -notmatch '"name"\s*:\s*"DATABASE_URL"') {
     Say "添加 PostgreSQL 数据库插件..."
-    railway add --database postgres
+    railway add --database postgres | Out-Null
     if ($LASTEXITCODE -ne 0) { Warn "添加数据库失败；若已存在可忽略。" }
     Start-Sleep -Seconds 5
 }
-Ok "数据库就绪（DATABASE_URL 由插件自动注入）"
+Ok "数据库就绪"
 
-# ---------- 6. 环境变量 ----------
+# ---------- 6. 应用服务 ----------
+$svcRaw = railway service list --json 2>$null | Out-String
+$HasWeb = $svcRaw -match '"name"\s*:\s*"web"'
+if (-not $HasWeb) {
+    Say "创建应用服务 web ..."
+    railway add --service web | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "创建应用服务失败。" }
+    Start-Sleep -Seconds 3
+}
+Ok "应用服务就绪"
+
+# ---------- 7. 环境变量 ----------
+# 注意：Railway 的数据库插件不会自动把 DATABASE_URL 注入到 web 服务，
+# 必须显式写引用变量 ${{Postgres.DATABASE_URL}}，否则首次构建会因缺数据库而崩溃。
 $SecretKey = -join ((1..64) | ForEach-Object { "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"[(Get-Random -Maximum 62)] })
-Say "写入 SECRET_KEY / ADMIN_PASSWORD ..."
-railway variables set "SECRET_KEY=$SecretKey" "ADMIN_PASSWORD=$AdminPassword" --skip-deploys | Out-Null
+Say "写入 DATABASE_URL / SECRET_KEY / ADMIN_PASSWORD ..."
+railway variables set --service web "DATABASE_URL=`${{Postgres.DATABASE_URL}}" "SECRET_KEY=$SecretKey" "ADMIN_PASSWORD=$AdminPassword" | Out-Null
 if ($LASTEXITCODE -ne 0) { Die "环境变量写入失败。" }
 Ok "变量已写入"
 
-# ---------- 7. 上传代码并构建 ----------
+# ---------- 8. 上传代码并构建 ----------
 Say "上传代码并构建（首次约 2-4 分钟）..."
-railway up --detach --yes
+railway up --service web --detach --yes | Out-Null
 if ($LASTEXITCODE -ne 0) { Die "上传失败。" }
 Start-Sleep -Seconds 5
 
-# ---------- 8. 关联 GitHub 仓库，实现 push 自动部署 ----------
+# ---------- 9. 关联 GitHub 仓库，实现 push 自动部署 ----------
 $svcRaw = railway service list --json 2>$null | Out-String
 $svcName = $null
-if ($svcRaw -match '"name"\s*:\s*"([^"]+)"') { $svcName = $matches[1] }
+if ($svcRaw -match '"name"\s*:\s*"web"') { $svcName = "web" }
 if ($svcName) {
     Say "关联 GitHub 仓库 $GitHubRepo （以后 git push 即自动部署）..."
     railway service source connect --repo $GitHubRepo --branch main --service $svcName | Out-Null
     if ($LASTEXITCODE -eq 0) { Ok "已关联 GitHub 自动部署" }
-    else { Warn "自动部署关联失败，不影响本次上线；可稍后在控制台手动关联。" }
+    else { Warn "自动部署关联失败（多半是当前网络连不上 GitHub），不影响本次上线；可稍后在控制台手动关联。" }
 } else {
     Warn "未能读到服务名，跳过 GitHub 自动部署关联。"
 }
 
-# ---------- 9. 生成域名 ----------
+# ---------- 10. 生成域名 ----------
 Say "生成公网域名 ..."
 $domainName = $null
 $domainRaw = railway domain --json 2>$null | Out-String
 if ($domainRaw -match '"domain"\s*:\s*"([^"]+)"') { $domainName = $matches[1] }
 if (-not $domainName) {
-    $raw = railway domain 2>&1 | Out-String
+    # --port 8000 必须带：Railway 新运行时不注入 PORT 变量，
+    # gunicorn 落回默认 8000 端口，而域名默认指向 8080，不指定就会一直 502。
+    $raw = railway domain --service web --port 8000 2>&1 | Out-String
     if ($raw -match 'https://([a-zA-Z0-9\-\.]+\.up\.railway\.app)') { $domainName = $matches[1] }
 }
 if (-not $domainName) { Die "没能取得域名，请到 Railway 控制台查看后在 Variables 手动填 BASE_URL。" }
 $BaseUrl = "https://$domainName"
 Ok "域名：$BaseUrl"
 
-Say "回填 BASE_URL 并触发重新部署 ..."
-railway variables set "BASE_URL=$BaseUrl" | Out-Null
+Say "回填 BASE_URL ..."
+railway variables set --service web "BASE_URL=$BaseUrl" | Out-Null
 if ($LASTEXITCODE -ne 0) { Warn "BASE_URL 回填失败，请稍后在控制台手动设置。" }
 
-# ---------- 10. 等待就绪 ----------
+# ---------- 11. 等待就绪 ----------
 Say "等待服务启动（最多 3 分钟）..."
 $ready = $false
 for ($i = 0; $i -lt 36; $i++) {
@@ -142,7 +157,11 @@ for ($i = 0; $i -lt 36; $i++) {
         if ($r.StatusCode -eq 200) { $ready = $true; break }
     } catch { }
 }
-if ($ready) { Ok "健康检查通过" } else { Warn "健康检查未通过，请到 Railway 控制台查看 Logs。" }
+if ($ready) { Ok "健康检查通过" }
+else {
+    Warn "健康检查未通过。若一直是 502，多半是域名端口不对，执行："
+    Warn "  railway domain update $domainName --port 8000 --service web"
+}
 
 # ---------- 完成 ----------
 Write-Host ""
