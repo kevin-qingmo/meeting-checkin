@@ -17,6 +17,10 @@
     <form method="post" action="{{ url_for('admin.activity_archive', activity_id=activity.id) }}" style="display:inline">
       <button class="btn btn-ghost" type="submit">{{ '取消归档' if activity.is_archived else '归档' }}</button>
     </form>
+    <form method="post" action="{{ url_for('admin.activity_delete', activity_id=activity.id) }}" style="display:inline"
+          onsubmit="return confirm('确定删除活动「{{ activity.title }}」吗？\n\n该活动的名册和全部签到记录会一并删除，且无法恢复。');">
+      <button class="btn btn-red" type="submit">删除活动</button>
+    </form>
   </div>
 </div>
 

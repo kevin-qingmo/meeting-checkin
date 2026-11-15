@@ -44,6 +44,10 @@
           <a class="btn btn-sm" href="{{ url_for('admin.dashboard', activity_id=row.activity.id) }}">后台</a>
           <a class="btn btn-sm btn-green" href="{{ url_for('board.screen', activity_id=row.activity.id) }}" target="_blank">大屏</a>
           <a class="btn btn-sm btn-ghost" href="{{ url_for('admin.activity_edit', activity_id=row.activity.id) }}">编辑</a>
+          <form method="post" action="{{ url_for('admin.activity_delete', activity_id=row.activity.id) }}" style="display:inline"
+                onsubmit="return confirm('确定删除活动「{{ row.activity.title }}」吗？\n\n该活动的名册和全部签到记录会一并删除，且无法恢复。');">
+            <button class="btn btn-sm btn-red" type="submit">删除</button>
+          </form>
         </td>
       </tr>
       {% endfor %}

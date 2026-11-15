@@ -137,8 +137,8 @@ def _scan(client, app, name="张三", phone="13800000000", campus="敬慧路校�
     with app.app_context():
         act_id = app.config["TEST_ACTIVITY_ID"]
         c = current_cycle() if cycle is None else cycle
-        code = site_code if site_code is not None else make_site_code(act_id, c)
-        token = make_token(act_id, c)
+        code = site_code if site_code is not None else make_site_code(act_id, c, mode)
+        token = make_token(act_id, c, mode)
     return client.post("/api/scan/%d" % act_id, data={
         "name": name, "phone": phone, "campus": campus,
         "site_code": code, "token": token, "cycle": str(c), "mode": mode,
@@ -257,3 +257,78 @@ def test_delete_checkin(client, app):
     assert r.get_json()["ok"] is True
     with app.app_context():
         assert CheckIn.query.count() == 0
+
+
+# ---------- 8. 删除活动 ----------
+def test_delete_activity_removes_roster_and_checkins(client, app):
+    login(client)
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _scan(client, app)
+    with app.app_context():
+        db.session.add(Roster(activity_id=aid, name="李四", campus="敬慧路校区"))
+        db.session.commit()
+        assert Roster.query.filter_by(activity_id=aid).count() == 1
+    r = client.post("/admin/activity/%d/delete" % aid, follow_redirects=True)
+    assert "已删除活动" in r.get_data(as_text=True)
+    with app.app_context():
+        assert db.session.get(Activity, aid) is None
+        assert CheckIn.query.filter_by(activity_id=aid).count() == 0
+        assert Roster.query.filter_by(activity_id=aid).count() == 0
+
+
+def test_deleted_activity_pages_return_404(client, app):
+    login(client)
+    aid = app.config["TEST_ACTIVITY_ID"]
+    client.post("/admin/activity/%d/delete" % aid)
+    assert client.get("/board/%d" % aid).status_code == 404
+    assert client.get("/scan/%d" % aid).status_code == 404
+    assert client.get("/api/activity/%d/live" % aid).status_code == 404
+
+
+def test_delete_activity_permission_checked(client, app):
+    """普通管理员不能删除别人的活动。"""
+    login(client, "teacher2", "teacher123456")
+    r = client.post("/admin/activity/%d/delete" % app.config["TEST_ACTIVITY_ID"])
+    assert r.status_code == 403
+    with app.app_context():
+        assert db.session.get(Activity, app.config["TEST_ACTIVITY_ID"]) is not None
+
+
+def test_activities_page_has_delete_button(client, app):
+    login(client)
+    body = client.get("/admin/").get_data(as_text=True)
+    assert "/delete" in body and "确定删除活动" in body
+
+
+# ---------- 9. 切换签到/签离模式换码 ----------
+def test_mode_switch_returns_different_code(client, app):
+    login(client)
+    aid = app.config["TEST_ACTIVITY_ID"]
+    d_in = client.get("/api/board/%d/qr?mode=in" % aid).get_json()
+    d_out = client.get("/api/board/%d/qr?mode=out" % aid).get_json()
+    assert d_in["token"] != d_out["token"]
+    assert d_in["site_code"] != d_out["site_code"]
+    assert d_in["qr_url"].endswith("m=in")
+    assert d_out["qr_url"].endswith("m=out")
+    assert d_out["qr_png"].endswith("mode=out")
+
+
+def test_code_of_other_mode_is_rejected(client, app):
+    """签离模式的码不能拿去签到（反截图转发）。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    with app.app_context():
+        c = current_cycle()
+        token = make_token(aid, c, "out")
+        code = make_site_code(aid, c, "out")
+    r = client.post("/api/scan/%d" % aid, data={
+        "name": "张三", "phone": "13800000000", "campus": "敬慧路校区",
+        "site_code": code, "token": token, "cycle": str(c), "mode": "in",
+    }, headers={"X-Requested-With": "XMLHttpRequest"})
+    assert "签到码无效" in r.get_data(as_text=True)
+
+
+def test_checkout_uses_its_own_code(client, app):
+    """签离流程使用签离模式自己的码。"""
+    _scan(client, app)
+    r = _scan(client, app, mode="out")
+    assert "签离成功" in r.get_data(as_text=True)

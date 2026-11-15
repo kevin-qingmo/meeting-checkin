@@ -12,23 +12,23 @@ def current_cycle(now=None):
     return int(ts // seconds)
 
 
-def _digest(activity_id, cycle):
+def _digest(activity_id, cycle, mode="in"):
     key = (current_app.config["SECRET_KEY"] if current_app else "dev-secret-change-me").encode("utf-8")
-    msg = "{}:{}".format(activity_id, cycle).encode("utf-8")
+    msg = "{}:{}:{}".format(activity_id, cycle, mode or "in").encode("utf-8")
     return hmac.new(key, msg, hashlib.sha256).hexdigest()
 
 
-def make_token(activity_id, cycle):
-    """签到码（进二维码 URL 的 token）。"""
-    return _digest(activity_id, cycle)[:16]
+def make_token(activity_id, cycle, mode="in"):
+    """签到码（进二维码 URL 的 token）。mode 参与运算，切换签到/签离即换新码。"""
+    return _digest(activity_id, cycle, mode)[:16]
 
 
-def make_site_code(activity_id, cycle):
+def make_site_code(activity_id, cycle, mode="in"):
     """现场码：4 位数字，每个签到码对应一个。"""
-    return str(int(_digest(activity_id, cycle)[:8], 16) % 10000).zfill(4)
+    return str(int(_digest(activity_id, cycle, mode)[:8], 16) % 10000).zfill(4)
 
 
-def verify(activity_id, token, code, cycle, now=None):
+def verify(activity_id, token, code, cycle, mode="in", now=None):
     """校验扫码 token + 现场码。接受当前与上一周期（40 秒容忍窗）。
 
     返回 (是否通过, 失败原因)
@@ -42,8 +42,8 @@ def verify(activity_id, token, code, cycle, now=None):
     cur = current_cycle(now)
     if cycle not in (cur, cur - 1):
         return False, "签到码已刷新，请使用大屏上最新的现场码"
-    if not hmac.compare_digest(str(token), make_token(activity_id, cycle)):
+    if not hmac.compare_digest(str(token), make_token(activity_id, cycle, mode)):
         return False, "签到码无效，请重新扫码"
-    if not hmac.compare_digest(str(code).strip(), make_site_code(activity_id, cycle)):
+    if not hmac.compare_digest(str(code).strip(), make_site_code(activity_id, cycle, mode)):
         return False, "现场码不正确"
     return True, ""

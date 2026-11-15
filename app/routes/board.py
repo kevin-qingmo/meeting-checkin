@@ -23,7 +23,7 @@ def _get_activity(activity_id):
 
 def _qr_url(activity_id, cycle, mode):
     base = current_app.config["BASE_URL"]
-    token = make_token(activity_id, cycle)
+    token = make_token(activity_id, cycle, mode)
     return "{}/scan/{}?t={}&c={}&m={}".format(base, activity_id, token, cycle, mode)
 
 
@@ -41,7 +41,7 @@ def screen(activity_id):
         live=live_payload(act),
         cycle=cycle,
         mode="in",
-        site_code=make_site_code(activity_id, cycle),
+        site_code=make_site_code(activity_id, cycle, "in"),
         qr_url=_qr_url(activity_id, cycle, "in"),
     )
 
@@ -87,8 +87,8 @@ def board_qr(activity_id):
     elapsed = int(time.time() % seconds)
     return jsonify({
         "cycle": cycle,
-        "site_code": make_site_code(activity_id, cycle),
-        "token": make_token(activity_id, cycle),
+        "site_code": make_site_code(activity_id, cycle, mode),
+        "token": make_token(activity_id, cycle, mode),
         "qr_url": _qr_url(activity_id, cycle, mode),
         "qr_png": "/qr/{}.png?cycle={}&mode={}".format(activity_id, cycle, mode),
         "mode": mode,

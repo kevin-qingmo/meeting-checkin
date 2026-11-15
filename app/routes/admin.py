@@ -125,6 +125,20 @@ def activity_archive(activity_id):
     return redirect(url_for("admin.activities"))
 
 
+@bp.route("/activity/<int:activity_id>/delete", methods=["POST"])
+@login_required
+def activity_delete(activity_id):
+    """彻底删除活动（含名册与全部签到记录，不可恢复）。"""
+    act = get_managed_activity(activity_id)
+    title = act.title
+    CheckIn.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
+    Roster.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
+    db.session.delete(act)
+    db.session.commit()
+    flash("已删除活动「{}」".format(title), "success")
+    return redirect(url_for("admin.activities"))
+
+
 @bp.route("/activity/<int:activity_id>/roster", methods=["POST"])
 @login_required
 def roster_import(activity_id):

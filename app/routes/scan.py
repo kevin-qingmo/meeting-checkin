@@ -75,7 +75,7 @@ def submit(activity_id):
     if status == "ended":
         return fail("签到已结束，如需补签请联系管理员")
 
-    ok, why = verify(activity.id, token, site_code, cycle)
+    ok, why = verify(activity.id, token, site_code, cycle, mode)
     if not ok:
         return fail(why)
 
