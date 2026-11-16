@@ -137,6 +137,17 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
 - 域名 target port 固定 8000；`DATABASE_URL` 用引用变量 `${{Postgres.DATABASE_URL}}`
 - 首次部署留下的两条「上线验收测试」活动已归档（列表里显示"已归档"），不影响使用
 
+### 事故记录：管理员改密码后忘记 → 只能靠 SSH 隧道直连数据库重置（2026-11-16）
+
+- 现象：用户 16:50 连续 8 次 `POST /login` 全部 200（失败），报"用户名或密码错误"。
+- 定位：`railway logs --http --since 24h` 是关键工具——能看出登录成功是 **302**、失败是 **200**。
+  日志只保留到 17:21 UTC，更早窗口（正是改密发生的时段）已被清掉，导致证据链有缺口。
+- 结论：用户按提示改过 admin 密码但忘了；系统**没有自助找回通道**，这是设计疏漏。
+- 处置（本次）：`ssh-keygen` → `railway ssh keys add` → `railway connect Postgres --tunnel-only --port 15432`
+  → `tools/prod_temp_admin.py create admin <新密码>`（直连 psycopg 重置）→ 验证登录 302 → 收尾注销密钥 + 关隧道 + 删含口令的 tunnel.log。
+- **教训**：让用户改密码之前，必须先准备好找回通道（见下条），否则用户被锁在外面又只能找运维。
+
+
 
 ## 配色约定
 
