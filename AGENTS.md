@@ -146,6 +146,8 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
 - 处置（本次）：`ssh-keygen` → `railway ssh keys add` → `railway connect Postgres --tunnel-only --port 15432`
   → `tools/prod_temp_admin.py create admin <新密码>`（直连 psycopg 重置）→ 验证登录 302 → 收尾注销密钥 + 关隧道 + 删含口令的 tunnel.log。
 - **教训**：让用户改密码之前，必须先准备好找回通道（见下条），否则用户被锁在外面又只能找运维。
+- **用户决定（2026-11-16）**：不加「忘记密码·救援码」自助重置功能。密码找回走 SSH 隧道直连数据库的既有流程即可，
+  **不要**再向他提议或擅自加公开的密码重置接口。
 
 
 
