@@ -54,6 +54,9 @@
 .feed-row .campus{color:#BFDCEC}
 .feed-row .time{color:rgba(255,255,255,.62);font-size:13px;font-variant-numeric:tabular-nums}
 .feed-row .tag{white-space:nowrap}
+/* 动态列表徽章：已签到=蓝，已签离=绿（与统计卡语义一致） */
+.board-page .feed-row .tag{background:rgba(124,192,232,.2);color:#A9D8F2;border:1px solid rgba(124,192,232,.42)}
+.board-page .feed-row .tag.g{background:rgba(143,199,174,.2);color:#A8D9C1;border-color:rgba(143,199,174,.45)}
 
 .board-foot{text-align:center;margin-top:28px}
 .switch-mode{background:#3F7CA3;border:1px solid rgba(255,255,255,.2);color:#fff;font-size:18px;font-weight:700;

@@ -80,7 +80,7 @@
         <span class="who">${esc(x.name)}</span>
         <span class="campus">${esc(x.campus)}</span>
         <span class="time">${esc(x.checked_in_at)}</span>
-        <span class="tag ${x.checked_out_at ? 'y' : 'g'}">${x.checked_out_at ? '已签离' : '已签到'}</span>
+        <span class="tag ${x.checked_out_at ? 'g' : ''}">${x.checked_out_at ? '已签离' : '已签到'}</span>
       </div>`).join('') || '<div class="feed-row"><span class="campus">暂无签到记录</span></div>';
     list.innerHTML = html;
   }
