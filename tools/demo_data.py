@@ -27,7 +27,7 @@ def run():
         db.create_all()
         owner = User.query.filter_by(username="admin").first()
         if owner is None:
-            owner = User(username="admin", display_name="超级管理员", role="super")
+            owner = User(username="admin", display_name="创建者", role="super")
             owner.set_password("admin123456")
             db.session.add(owner)
             db.session.commit()

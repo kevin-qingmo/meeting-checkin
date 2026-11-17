@@ -19,7 +19,7 @@
       <button class="btn btn-ghost" type="submit">{{ '取消归档' if activity.is_archived else '归档' }}</button>
     </form>
     <form method="post" action="{{ url_for('admin.activity_delete', activity_id=activity.id) }}" style="display:inline"
-          onsubmit="return confirm('确定删除活动「{{ activity.title }}」吗？\n\n该活动的名册和全部签到记录会一并删除，且无法恢复。');">
+          onsubmit='return confirm({{ ("确定删除活动「" ~ activity.title ~ "」吗？\n\n该活动的名册和全部签到记录会一并删除，且无法恢复。") | tojson }})'>
       <button class="btn btn-red" type="submit">删除活动</button>
     </form>
   </div>
@@ -70,6 +70,45 @@
       <button class="btn" type="submit">补录签到</button>
       <span id="manual-msg" class="muted small" style="margin-left:10px"></span>
     </form>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <h2>随机抽签</h2>
+  <div class="sub">从本场<strong>已签到</strong>人员中随机抽取；结果会记录并在大屏展示</div>
+  <div class="row" style="align-items:flex-end">
+    <div class="field" style="flex:0 0 180px">
+      <label>抽取人数</label>
+      <input type="number" id="lottery-count" min="1" value="1" step="1">
+    </div>
+    <div class="field" style="flex:0 0 auto">
+      <label class="switch">
+        <input type="checkbox" id="lottery-exclude" checked>
+        <span>排除已中奖的人</span>
+      </label>
+    </div>
+    <div style="flex:0">
+      <button class="btn" id="lottery-btn" type="button">开始抽奖</button>
+    </div>
+  </div>
+  <div id="lottery-msg" class="muted small" style="margin-top:8px"></div>
+
+  <div style="margin-top:16px">
+    <div class="muted small" style="margin-bottom:6px">历史抽奖记录</div>
+    <table id="lottery-history">
+      <thead><tr><th>轮次</th><th>抽取时间</th><th>人数</th><th>中奖名单</th><th>操作人</th><th>排除已中奖</th></tr></thead>
+      <tbody id="lottery-history-body">
+        <tr><td colspan="6" class="muted">暂无抽奖记录</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="lottery-overlay" id="lottery-overlay">
+  <div class="lottery-overlay-box">
+    <div class="lottery-overlay-title">恭喜中奖</div>
+    <div class="lottery-winners" id="lottery-winners"></div>
+    <button class="btn btn-ghost" id="lottery-close" type="button">关闭</button>
   </div>
 </div>
 
@@ -134,7 +173,7 @@ async function loadLive(){
 }
 function esc(s){ return (s===null||s===undefined?'':String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 async function delCheckin(id){
-  if(!confirm('确定删除这条签到记录？')) return;
+  if(!confirm("确定删除这条签到记录？")) return;
   const r = await fetch(`/api/checkin/${id}/delete`, {method:'POST'});
   const d = await r.json();
   alert(d.message || '已删除');
@@ -149,5 +188,85 @@ document.getElementById('manual-form').addEventListener('submit', async (e) => {
   if(d.ok){ e.target.reset(); loadLive(); }
 });
 setInterval(loadLive, 2000);
+
+// ---------- 随机抽签 ----------
+async function readJsonSafe(r){
+  try { return await r.json(); } catch(e) { return null; }
+}
+async function loadLotteryHistory(){
+  const body = document.getElementById('lottery-history-body');
+  const emptyRow = '<tr><td colspan="6" class="muted">暂无抽奖记录</td></tr>';
+  try{
+    const r = await fetch(`/admin/activity/${ACTIVITY_ID}/lottery?_=${Date.now()}`);
+    const d = await readJsonSafe(r);
+    if(!r.ok || !d || d.ok !== true){ body.innerHTML = emptyRow; return; }
+    const rounds = d.rounds || [];
+    body.innerHTML = rounds.map(x => {
+      const id = (x && x.id) || 0;
+      const names = ((x && x.winners) || []).map(w => (w && w.name) || '').filter(Boolean).join('、');
+      return `<tr>
+        <td title="${esc('记录 #' + id)}">第 ${esc(String(x.seq))} 轮</td>
+        <td class="small">${esc((x && x.created_at) || '')}</td>
+        <td>${esc(String((x && x.draw_count) || 0))}</td>
+        <td>${esc(names) || '—'}</td>
+        <td>${esc((x && x.operator) || '')}</td>
+        <td>${(x && x.excluded) ? '是' : '否'}</td>
+      </tr>`;
+    }).join('') || emptyRow;
+  }catch(e){
+    body.innerHTML = emptyRow;
+  }
+}
+document.getElementById('lottery-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('lottery-btn');
+  const msg = document.getElementById('lottery-msg');
+  // 前端先校验人数：非正整数不发请求（否则服务端会静默按 1 人处理）
+  const raw = (document.getElementById('lottery-count').value || '').trim();
+  const count = Number(raw);
+  if(!raw || !Number.isInteger(count) || count < 1){
+    msg.textContent = '抽取人数需为大于 0 的整数';
+    return;
+  }
+  btn.disabled = true;
+  msg.textContent = '抽取中…';
+  try{
+    const fd = new FormData();
+    fd.append('count', String(count));
+    // 必须显式传单值：勾选传 on，未勾选传 off（服务端以最后一个取值为准）
+    fd.append('exclude_winners', document.getElementById('lottery-exclude').checked ? 'on' : 'off');
+    const r = await fetch(`/admin/activity/${ACTIVITY_ID}/lottery`, {method:'POST', body: fd});
+    const d = await readJsonSafe(r);
+    if(!r.ok || !d || d.ok !== true){
+      // 403/404 会返回 HTML 错误页，未登录还会 302 跳登录页（此时 status 是 200），
+      // 这里只给中文通用提示，不带 HTTP 码，避免误导
+      msg.textContent = (d && d.message) ? d.message
+        : '抽取失败，请确认登录状态或稍后重试。';
+      return;
+    }
+    msg.textContent = d.message || '抽取成功';
+    const winners = (d.round && d.round.winners) || [];
+    document.getElementById('lottery-winners').innerHTML = winners.map(w =>
+      `<div class="lottery-winner">${esc((w && w.name) || '')}<span>${esc((w && w.campus) || '')}</span></div>`
+    ).join('');
+    document.getElementById('lottery-overlay').classList.add('show');
+    loadLotteryHistory();
+  }catch(e){
+    msg.textContent = '抽取失败，请确认登录状态或稍后重试。';
+  }finally{
+    btn.disabled = false;
+  }
+});
+const lotteryOverlay = document.getElementById('lottery-overlay');
+function closeLotteryOverlay(){ lotteryOverlay.classList.remove('show'); }
+document.getElementById('lottery-close').addEventListener('click', closeLotteryOverlay);
+// 点击遮罩空白处关闭（点击中奖名单本体不关闭）
+lotteryOverlay.addEventListener('click', (e) => {
+  if(e.target === lotteryOverlay) closeLotteryOverlay();
+});
+// ESC 键关闭
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape') closeLotteryOverlay();
+});
+loadLotteryHistory();
 </script>
 {% endblock %}

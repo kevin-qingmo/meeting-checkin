@@ -5,7 +5,8 @@ from flask_login import current_user, login_required
 
 from ..access import get_managed_activity, live_payload
 from ..extensions import db
-from ..models import CheckIn
+from ..lottery import recent_rounds, winner_items
+from ..models import Activity, CheckIn
 
 bp = Blueprint("api", __name__)
 
@@ -76,3 +77,30 @@ def _parse_dt(raw):
         except ValueError:
             continue
     return None
+
+
+def _public_round(round_data):
+    """公开视图：抹掉中奖人手机号与操作人，只保留姓名与校区；脏数据元素直接跳过。
+
+    操作人姓名属于内部信息，公开接口（大屏投屏场景）不需要，直接不带出；
+    后台历史所需的操作人走登录态私有接口 GET /admin/activity/<id>/lottery。
+    """
+    if not round_data:
+        return round_data
+    public = dict(round_data)
+    public.pop("operator", None)
+    public["winners"] = [
+        {"name": w.get("name", ""), "campus": w.get("campus", "")}
+        for w in winner_items(round_data.get("winners"))
+    ]
+    return public
+
+
+@bp.route("/api/activity/<int:activity_id>/lottery")
+def activity_lottery(activity_id):
+    """抽签记录（公开只读，供大屏投屏使用；中奖人手机号不外泄）。"""
+    activity = db.session.get(Activity, activity_id)
+    if activity is None:
+        return jsonify({"ok": False, "message": "活动不存在"}), 404
+    rounds = [_public_round(r) for r in recent_rounds(activity, 5)]
+    return jsonify({"ok": True, "rounds": rounds, "latest": rounds[0] if rounds else None})

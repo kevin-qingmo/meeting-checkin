@@ -1,4 +1,4 @@
-/* 签到大屏：二维码 / 现场码 20 秒轮换 + 实时数据 2 秒轮询
+/* 签到大屏：二维码 / 现场码 20 秒轮换 + 实时数据 2 秒轮询 + 中奖名单 5 秒轮询
  *
  * 关键点：
  *  - 倒计时锚定在「取到这轮码的时刻」（cycleStart），而不是服务器整点，
@@ -85,6 +85,52 @@
     list.innerHTML = html;
   }
 
+  // 中奖名单：5 秒轮询公开抽签接口；同一轮不重复重绘，避免滚动动画被重置
+  let lastWinnerRound = -1;
+  let winnersLoading = false;   // in-flight 防抖：慢网络下不叠加请求
+
+  async function loadWinners() {
+    if (winnersLoading) return;   // 上一轮还没回来，本次跳过
+    winnersLoading = true;
+    let d;
+    try {
+      const r = await fetch(`/api/activity/${ACTIVITY_ID}/lottery?_=${Date.now()}`);
+      if (!r.ok) return;
+      d = await r.json();
+    } catch (e) {
+      return;   // 网络抖动：保持当前画面，下个周期再试
+    } finally {
+      winnersLoading = false;
+    }
+    const list = document.getElementById('winner-list');
+    const empty = document.getElementById('winner-empty');
+    const roundTag = document.getElementById('winner-round');
+    const marquee = document.getElementById('winner-marquee');
+    if (!list) return;
+    const latest = (d && d.latest) || null;
+    const winners = (latest && Array.isArray(latest.winners)) ? latest.winners : [];
+    if (!winners.length) {
+      lastWinnerRound = -1;
+      if (empty) empty.style.display = '';
+      if (roundTag) roundTag.textContent = '';
+      if (marquee) marquee.innerHTML = '';
+      return;
+    }
+    if (latest.id === lastWinnerRound) return;   // 同一轮不重复重绘（含轮次文案）
+    lastWinnerRound = latest.id;
+    if (empty) empty.style.display = 'none';
+    if (roundTag) roundTag.textContent = '最新一轮 · ' + (latest.created_at || '');
+    const items = winners.map(w => {
+      const name = esc((w && w.name) || '');
+      const campus = esc((w && w.campus) || '');
+      return `<span class="winner-item"><span class="winner-name">${name}</span>` +
+        (campus ? `<span class="winner-campus">${campus}</span>` : '') + '</span>';
+    }).join('');
+    if (marquee) {
+      marquee.innerHTML = `<div class="winner-marquee-inner">${items}</div>`;
+    }
+  }
+
   function esc(s) {
     return (s === null || s === undefined ? '' : String(s)).replace(/[&<>"]/g, c =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -97,4 +143,6 @@
   setInterval(tick, 250);
   loadLive();
   setInterval(loadLive, 2000);
+  loadWinners();
+  setInterval(loadWinners, 5000);
 })();

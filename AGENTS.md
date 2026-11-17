@@ -109,7 +109,7 @@ cd "D:\MiniMax工作站\签到系统"
 ## 验收方式
 
 ```powershell
-Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' -m pytest tests -q   # 25 passed
+Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' -m pytest tests -q   # 92 passed
 ```
 
 - **跨实例一致性**：`tools/cross_instance_check.py` —— 实例 A 出码 → 实例 B 校验落库 → A 读回计数=1 → 错码被拒。这是多进程部署正确性的关键证据。
@@ -121,7 +121,7 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
   1. `ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\railway_verify_ed25519 -N '""'`（`.ssh` 目录可能不存在，要先建）
   2. `railway ssh keys add --key <公钥路径> --name mcode-verify-temp`（注册到 Railway 账号）
   3. `railway connect Postgres --tunnel-only --port 15432` → 输出 `postgresql://postgres:<口令>@127.0.0.1:15432/railway`
-  4. 用该 URL 设 `DATABASE_URL` 跑 `tools/prod_temp_admin.py create/delete <用户名> <口令>`（直连 psycopg 建临时超管）
+  4. 用该 URL 设 `DATABASE_URL` 跑 `tools/prod_temp_admin.py create/delete <用户名> <口令>`（直连 psycopg 建临时创建者账号）
   5. 用临时账号跑 `tools/e2e_public.py`，验完 `delete` 掉临时账号
   6. 收尾：`railway ssh keys remove <指纹>` + 停 ssh 进程 + 删本地密钥
   - **坑**：隧道日志文件（`> tunnel.log`）会被进程长期占用删不掉，且**里面有数据库口令** → 务必 gitignore，退出后让用户手动删，或直接轮换口令。
@@ -188,6 +188,27 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
   模型侧用 `Activity.is_school_wide` 判断；模板里活动列表/看板显示金色 `全校活动` 标记。
 - 服务端 `_read_form()` 里 `school_wide` 为真时强制覆盖校区/学段/学科，**不依赖 JS**。
 
+## 随机抽签机制（2026-11-17 新增）
+
+- 数据表 `lottery_rounds`：每次抽取落一条（人数 / 中奖名单 JSON / 是否排除已中奖 / 操作人 / 时间）。
+- 领域逻辑集中在 `app/lottery.py`：`candidate_pool`（只取已签到）、`past_winner_keys`（历史中奖人）、
+  `draw`（`secrets.SystemRandom().sample`）、`save_round`、`recent_rounds`。
+- 去重键：手机号优先 `p:<phone>`，否则 `n:<姓名>|<校区>`。
+- 接口：`POST /admin/activity/<id>/lottery`（登录+活动归属）、`GET /api/activity/<id>/lottery`（**公开只读**，大屏用；中奖人手机号不外泄）。
+- 大屏 `board.js` 每 5 秒轮询抽签接口，`winner-marquee` CSS 动画滚动展示最新一轮名单。
+- Excel 导出第 4 张表「抽奖记录」。
+- 活动删除、账号删除都会级联清理 `lottery_rounds`。
+
+## 账号删除机制（2026-11-17 新增）
+
+- 「账号管理」里，创建者可删除**普通管理员**账号；不能删当前登录的账号（自删），也不能删另一个创建者账号。
+- 删除时，该账号名下的活动/名册/签到一并删除，活动按 **抽签轮次 → 签到 → 名册 → 活动** 的顺序清理
+  （`Activity.owner_id` 是 NOT NULL 外键，必须先删活动再删用户；`LotteryRound.activity_id` 同理，不先删轮次会 IntegrityError）。
+- 该账号在**别人**活动上留下的「操作人」引用会被显式置空：`CheckIn.operator_id`、`LotteryRound.operator_id` → NULL
+  （本地 SQLite 默认不执行外键、ORM 也不会自动置空，所以必须在代码里显式处理；生产 Postgres 同样安全）。
+- 表格里的账号 id 一律经 `app/routes/admin.py` 的 `_parse_uid()` / `_find_user()` 解析：非法值（如 `²`）
+  一律按「账号不存在」提示，**不得 500**。
+
 ## 目录速查
 
 | 路径 | 内容 |
@@ -197,8 +218,9 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
 | `app/static/css/` | `app.css`（后台）、`board.css`（大屏） |
 | `app/static/js/board.js` | 大屏倒计时条 `paintBar`（蓝色贴左、右边缘向左退缩） |
 | `app/codes.py` | HMAC 派生签到码与现场码 |
-| `app/models.py` | User / Activity / Roster / CheckIn / Setting |
-| `seed.py` | 建超管 admin + 预置三校区/三学段/15 学科字典 |
+| `app/lottery.py` | 抽签领域逻辑：候选池 / 排除已中奖 / 随机抽取 / 轮次留痕 |
+| `app/models.py` | User / Activity / Roster / CheckIn / LotteryRound / Setting |
+| `seed.py` | 建创建者账号 admin + 预置三校区/三学段/15 学科字典 |
 | `tools/` | demo_data / ui_check / ui_check_bar / cross_instance_check / e2e_public |
 | `deploy/` | 部署指南.md + 一键部署.ps1 |
 | `docs/superpowers/` | 设计文档与实现计划（gitignore 了） |

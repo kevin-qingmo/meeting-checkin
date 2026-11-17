@@ -237,7 +237,7 @@ def test_manual_checkin(client, app):
         assert rec.source == "manual"
 
 
-def test_export_excel_has_three_sheets(client, app):
+def test_export_excel_has_four_sheets(client, app):
     login(client)
     _scan(client, app)
     r = client.get("/admin/activity/%d/export" % app.config["TEST_ACTIVITY_ID"])
@@ -245,7 +245,7 @@ def test_export_excel_has_three_sheets(client, app):
     import io
     from openpyxl import load_workbook
     wb = load_workbook(io.BytesIO(r.data))
-    assert wb.sheetnames == ["签到明细", "应到实到统计", "缺席名单"]
+    assert wb.sheetnames == ["签到明细", "应到实到统计", "缺席名单", "抽奖记录"]
 
 
 def test_delete_checkin(client, app):

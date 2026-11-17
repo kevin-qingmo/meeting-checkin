@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 from flask_login import UserMixin
+from sqlalchemy.orm import backref
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .extensions import db
@@ -78,7 +79,11 @@ class Activity(db.Model):
     owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.now)
 
-    owner = db.relationship("User", backref="activities")
+    # 删除账号/活动时，ORM 不再加载并置空子行的外键（避免 StaleDataError），
+    # 子行由业务代码按依赖顺序显式删除。
+    owner = db.relationship(
+        "User", backref=backref("activities", passive_deletes=True),
+        passive_deletes=True)
 
     # ---- JSON 字段便捷访问 ----
     @property
@@ -114,7 +119,9 @@ class Roster(db.Model):
     stage = db.Column(db.String(32), default="")
     subject = db.Column(db.String(32), default="")
 
-    activity = db.relationship("Activity", backref="roster")
+    activity = db.relationship(
+        "Activity", backref=backref("roster", passive_deletes=True),
+        passive_deletes=True)
 
 
 class CheckIn(db.Model):
@@ -132,8 +139,37 @@ class CheckIn(db.Model):
     checked_out_at = db.Column(db.DateTime, nullable=True)
     operator_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
 
-    activity = db.relationship("Activity", backref="checkins")
+    activity = db.relationship(
+        "Activity", backref=backref("checkins", passive_deletes=True),
+        passive_deletes=True)
     operator = db.relationship("User", foreign_keys=[operator_id])
+
+
+class LotteryRound(db.Model):
+    """一次随机抽签的结果留痕。"""
+
+    __tablename__ = "lottery_rounds"
+
+    id = db.Column(db.Integer, primary_key=True)
+    activity_id = db.Column(db.Integer, db.ForeignKey("activities.id"), nullable=False)
+    draw_count = db.Column(db.Integer, default=1)
+    winners_json = db.Column(db.Text, default="[]")
+    excluded = db.Column(db.Boolean, default=True)
+    operator_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    activity = db.relationship(
+        "Activity", backref=backref("lottery_rounds", passive_deletes=True),
+        passive_deletes=True)
+    operator = db.relationship("User", foreign_keys=[operator_id])
+
+    @property
+    def winners(self):
+        try:
+            data = json.loads(self.winners_json or "[]")
+        except (ValueError, TypeError):
+            return []
+        return data if isinstance(data, list) else []
 
 
 class Setting(db.Model):

@@ -1,10 +1,12 @@
-"""导出签到表（Excel 三工作表）。"""
+"""导出签到表（Excel 工作表）。"""
 from datetime import datetime
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from .access import activity_stats
+from .lottery import round_seq_map
+from .models import LotteryRound
 
 HEADER_FILL = PatternFill("solid", fgColor="8A6B52")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
@@ -63,5 +65,26 @@ def build_workbook(activity):
         ws3.append([row.name, row.campus, row.phone or "", row.stage, row.subject])
     for col, width in zip("ABCDE", (16, 18, 16, 12, 12)):
         ws3.column_dimensions[col].width = width
+
+    ws4 = wb.create_sheet("抽奖记录")
+    _style_header(ws4, ["轮次", "抽取时间", "抽取人数", "中奖名单", "操作人", "排除已中奖者"])
+    rounds = (LotteryRound.query.filter_by(activity_id=activity.id)
+              .order_by(LotteryRound.id).all())
+    # 轮次 = 活动内序号（与后台历史表格同一口径，来源同一处）
+    seqs = round_seq_map(activity.id)
+    for row in rounds:
+        names = "、".join(
+            w.get("name", "") for w in row.winners
+            if isinstance(w, dict) and (w.get("name") or "").strip())
+        ws4.append([
+            seqs.get(row.id),
+            _fmt(row.created_at),
+            row.draw_count,
+            names,
+            row.operator.display_name if row.operator else "",
+            "是" if row.excluded else "否",
+        ])
+    for col, width in zip("ABCDEF", (8, 22, 12, 40, 16, 16)):
+        ws4.column_dimensions[col].width = width
 
     return wb

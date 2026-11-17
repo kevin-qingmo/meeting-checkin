@@ -32,6 +32,14 @@
             {% if u.id != current_user.id %}
             <form method="post" style="display:inline"><input type="hidden" name="action" value="role"><input type="hidden" name="uid" value="{{ u.id }}"><button class="btn btn-sm btn-ghost">改角色</button></form>
             <form method="post" style="display:inline"><input type="hidden" name="action" value="toggle"><input type="hidden" name="uid" value="{{ u.id }}"><button class="btn btn-sm btn-ghost">{{ '停用' if u.active else '启用' }}</button></form>
+            {% if not u.is_super %}
+            <form method="post" style="display:inline"
+                  onsubmit='return confirm({{ ("确定删除账号「" ~ u.display_name ~ "」吗？\n\n该账号名下的活动、名册、签到记录与抽签记录会一并删除，且无法恢复。") | tojson }})'>
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="uid" value="{{ u.id }}">
+              <button class="btn btn-sm btn-red" type="submit">删除</button>
+            </form>
+            {% endif %}
             {% else %}
             <form method="post" style="display:inline-flex;gap:6px;align-items:center">
               <input type="hidden" name="action" value="rename">

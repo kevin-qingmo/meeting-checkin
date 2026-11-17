@@ -1,15 +1,19 @@
 import json
 from datetime import datetime
 
-from flask import (Blueprint, abort, flash, redirect, render_template, request,
-                   send_file, url_for)
+from flask import (Blueprint, abort, flash, jsonify, redirect, render_template,
+                   request, send_file, url_for)
 from flask_login import current_user, login_required
 from openpyxl import Workbook
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 
 from ..access import (activity_stats, dict_campuses, dict_stages, dict_subjects,
                       get_managed_activity, live_payload, name_map)
 from ..extensions import db
-from ..models import ALL_CAMPUS, Activity, CheckIn, Roster, Setting, User
+from ..lottery import all_rounds, candidate_pool, draw, save_round, serialize_round
+from ..models import (ALL_CAMPUS, Activity, CheckIn, LotteryRound, Roster, Setting,
+                     User)
 from ..roster import import_roster
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -29,6 +33,29 @@ def _parse_dt(raw, fallback=None):
 
 def _multi(form, field):
     return json.dumps([v for v in form.getlist(field) if v], ensure_ascii=False)
+
+
+def _parse_uid(raw):
+    """解析表单里的账号 id，非法值一律返回 None（不抛异常）。
+
+    int() 对 '²' 等 Unicode 非十进制数字会抛 ValueError，未捕获会变成 500；
+    所有按 id 取账号的分支都必须走这里，统一按「账号不存在」处理。
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _find_user(raw_uid):
+    """按表单里的账号 id 取用户；id 非法或账号不存在一律返回 None。"""
+    uid = _parse_uid(raw_uid)
+    if uid is None:
+        return None
+    return db.session.get(User, uid)
 
 
 @bp.route("/")
@@ -140,12 +167,83 @@ def activity_delete(activity_id):
     """彻底删除活动（含名册与全部签到记录，不可恢复）。"""
     act = get_managed_activity(activity_id)
     title = act.title
+    # 按依赖顺序清理：抽签轮次 → 签到 → 名册 → 活动
+    # （LotteryRound.activity_id 是 NOT NULL 外键，不先删轮次会 IntegrityError 500）
+    LotteryRound.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
     CheckIn.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
     Roster.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
+    # 子行已在数据库层面删除，必须丢弃会话里可能已加载的关系集合：
+    # 否则 ORM 会试图把这些子行的 activity_id 置空，而子行已不存在 → StaleDataError。
+    db.session.expire(act, ["checkins", "roster", "lottery_rounds"])
     db.session.delete(act)
     db.session.commit()
     flash("已删除活动「{}」".format(title), "success")
     return redirect(url_for("admin.activities"))
+
+
+def _exclude_winners_flag(values):
+    """判定「排除已中奖」开关：默认开启，仅显式传关闭值时才关闭。
+
+    values：表单里 exclude_winners 的全部取值（可能多个，如 hidden + checkbox 同名）。
+    同名多值时以**最后一个**为准 —— 浏览器按 DOM 顺序提交，checkbox 在后则其值在后，
+    这样 hidden(off) + checkbox(on) 勾选时按「排除」执行，勾选意图不会被静默反转。
+
+    判定表：
+      字段缺失（空列表 / None） → True（缺省排除）
+      "" / 纯空白              → True（视为缺省）
+      on / 1 / true / yes      → True
+      0 / off / false / no     → False（显式关闭）
+      其它任意值               → True（默认排除，fail-safe）
+    """
+    if not values:
+        return True
+    value = str(values[-1]).strip().lower()
+    if not value:
+        return True
+    return value not in ("0", "off", "false", "no")
+
+
+@bp.route("/activity/<int:activity_id>/lottery", methods=["GET", "POST"])
+@login_required
+def activity_lottery(activity_id):
+    """从已签到人员中随机抽签并留痕；GET 返回该活动的全部抽签记录。"""
+    act = get_managed_activity(activity_id)
+    if request.method == "GET":
+        # 登录态私有接口：后台历史表格用，能拿到全部轮次与操作人
+        rounds = all_rounds(act)
+        return jsonify({"ok": True, "rounds": rounds,
+                        "latest": rounds[0] if rounds else None})
+    try:
+        count = int(request.form.get("count") or 1)
+    except (TypeError, ValueError):
+        count = 1
+    count = max(1, count)
+    exclude = _exclude_winners_flag(request.form.getlist("exclude_winners"))
+    if not candidate_pool(act):
+        return jsonify({"ok": False, "message": "暂无可抽取人员，请先完成签到"}), 400
+    winners, available = draw(act, count, exclude)
+    if not winners:
+        if available == 0:
+            # 候选池非空但全部已中奖：与「暂无可抽取人员」区分开
+            return jsonify({
+                "ok": False,
+                "message": "候选人员都已中过奖，可开启「允许重复中奖」",
+            }), 400
+        return jsonify({
+            "ok": False,
+            "message": "可抽取人员不足（可抽 {} 人）".format(available),
+        }), 400
+    # draw_count 记录实际抽中人数（请求人数可能大于可抽人数）
+    row = save_round(act, winners, len(winners), exclude, current_user.id)
+    if row is None:
+        # 兜底：save_round 在中奖人为空时不落库
+        return jsonify({"ok": False, "message": "暂无可抽取人员，请先完成签到"}), 400
+    return jsonify({
+        "ok": True,
+        "message": "已抽出 {} 人".format(len(winners)),
+        "round": serialize_round(row, current_user.display_name),
+        "rounds": all_rounds(act),
+    })
 
 
 @bp.route("/activity/<int:activity_id>/roster", methods=["POST"])
@@ -243,39 +341,93 @@ def users():
                 db.session.commit()
                 flash("账号已创建", "success")
         elif action == "toggle":
-            uid = request.form.get("uid")
-            u = db.session.get(User, int(uid)) if uid else None
-            if u and u.id != current_user.id:
+            u = _find_user(request.form.get("uid"))
+            if u is None:
+                flash("账号不存在", "error")
+            elif u.id != current_user.id:
                 u.active = not u.active
                 db.session.commit()
                 flash("已更新账号状态", "success")
         elif action == "reset":
-            uid = request.form.get("uid")
             password = request.form.get("password") or ""
-            u = db.session.get(User, int(uid)) if uid else None
-            if u and len(password) >= 6:
+            u = _find_user(request.form.get("uid"))
+            if u is None:
+                flash("账号不存在", "error")
+            elif len(password) >= 6:
                 u.set_password(password)
                 db.session.commit()
                 flash("密码已重置", "success")
             else:
                 flash("密码至少 6 位", "error")
         elif action == "role":
-            uid = request.form.get("uid")
-            u = db.session.get(User, int(uid)) if uid else None
-            if u and u.id != current_user.id:
+            u = _find_user(request.form.get("uid"))
+            if u is None:
+                flash("账号不存在", "error")
+            elif u.id != current_user.id:
                 u.role = "super" if u.role != "super" else "admin"
                 db.session.commit()
                 flash("已更新角色", "success")
         elif action == "rename":
-            uid = request.form.get("uid")
             display_name = (request.form.get("display_name") or "").strip()
-            u = db.session.get(User, int(uid)) if uid else None
-            if u and display_name:
+            u = _find_user(request.form.get("uid"))
+            if u is None:
+                flash("账号不存在", "error")
+            elif display_name:
                 u.display_name = display_name
                 db.session.commit()
                 flash("姓名已更新", "success")
             else:
                 flash("请填写姓名", "error")
+        elif action == "delete":
+            # 非法参数必须兜住（见 _parse_uid）：一律按「账号不存在」处理
+            u = _find_user(request.form.get("uid"))
+            if u is None:
+                flash("账号不存在", "error")
+            elif u.id == current_user.id:
+                flash("不能删除当前登录的账号", "error")
+            elif u.is_super:
+                # 删除能力限定在普通管理员；创建者账号不可被删除
+                flash("不能删除创建者账号", "error")
+            else:
+                try:
+                    name = u.display_name
+                    # 只取 id，避免把活动实体挂进会话（避免 ORM 级联空外键）
+                    act_ids = [row[0] for row in
+                               db.session.query(Activity.id).filter(Activity.owner_id == u.id).all()]
+                    # 先解除该账号在别处留下的「操作人」引用：
+                    # CheckIn.operator_id 无 ondelete；LotteryRound.operator_id 虽有
+                    # ON DELETE SET NULL，但本地 SQLite 不执行外键，且 ORM 也不会自动置空，
+                    # 因此两处都必须在代码里显式置空，生产 Postgres 同样安全。
+                    CheckIn.query.filter(CheckIn.operator_id == u.id).update(
+                        {CheckIn.operator_id: None}, synchronize_session=False)
+                    LotteryRound.query.filter(LotteryRound.operator_id == u.id).update(
+                        {LotteryRound.operator_id: None}, synchronize_session=False)
+                    # 名下的活动按依赖顺序删除：轮次 → 签到 → 名册 → 活动
+                    # （Activity.owner_id 是 NOT NULL 外键，必须先删活动再删用户）
+                    if act_ids:
+                        LotteryRound.query.filter(
+                            LotteryRound.activity_id.in_(act_ids)).delete(synchronize_session=False)
+                        CheckIn.query.filter(
+                            CheckIn.activity_id.in_(act_ids)).delete(synchronize_session=False)
+                        Roster.query.filter(
+                            Roster.activity_id.in_(act_ids)).delete(synchronize_session=False)
+                        Activity.query.filter(
+                            Activity.id.in_(act_ids)).delete(synchronize_session=False)
+                    # 名下活动已在数据库层面删除，丢弃会话里可能已加载的集合，
+                    # 否则 ORM 会试图把残留活动的 owner_id 置空 → StaleDataError
+                    db.session.expire(u, ["activities"])
+                    db.session.delete(u)
+                    db.session.commit()
+                except (IntegrityError, StaleDataError):
+                    # 外键冲突、并发删除导致行数不匹配等：回滚整笔操作，不留半删，
+                    # 给出中文提示（不得 500）
+                    db.session.rollback()
+                    flash("删除失败，请稍后重试", "error")
+                else:
+                    if act_ids:
+                        flash("已删除账号「{}」及其 {} 个活动".format(name, len(act_ids)), "success")
+                    else:
+                        flash("已删除账号「{}」".format(name), "success")
     return render_template("admin/users.html", users=User.query.order_by(User.id).all())
 
 
