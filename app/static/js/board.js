@@ -87,8 +87,11 @@
 
   // 中奖名单：5 秒轮询公开抽签接口；同一轮不重复重绘，避免滚动动画被重置
   let lastWinnerRound = -1;
+  let winnersLoading = false;   // in-flight 防抖：慢网络下不叠加请求
 
   async function loadWinners() {
+    if (winnersLoading) return;   // 上一轮还没回来，本次跳过
+    winnersLoading = true;
     let d;
     try {
       const r = await fetch(`/api/activity/${ACTIVITY_ID}/lottery?_=${Date.now()}`);
@@ -96,6 +99,8 @@
       d = await r.json();
     } catch (e) {
       return;   // 网络抖动：保持当前画面，下个周期再试
+    } finally {
+      winnersLoading = false;
     }
     const list = document.getElementById('winner-list');
     const empty = document.getElementById('winner-empty');
@@ -111,10 +116,10 @@
       if (marquee) marquee.innerHTML = '';
       return;
     }
+    if (latest.id === lastWinnerRound) return;   // 同一轮不重复重绘（含轮次文案）
+    lastWinnerRound = latest.id;
     if (empty) empty.style.display = 'none';
     if (roundTag) roundTag.textContent = '最新一轮 · ' + (latest.created_at || '');
-    if (latest.id === lastWinnerRound) return;   // 同一轮不重复重绘
-    lastWinnerRound = latest.id;
     const items = winners.map(w => {
       const name = esc((w && w.name) || '');
       const campus = esc((w && w.campus) || '');

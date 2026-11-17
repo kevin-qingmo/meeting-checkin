@@ -70,8 +70,6 @@
 .switch-mode:hover{background:#C4A47C}
 
 /* ---------- 中奖名单（沿用大屏黑金配色：沙金强调 + 米白正文） ---------- */
-/* 大屏一屏放得下：动态列表略收窄，把空间让给中奖名单 */
-.board-page .board-side .feed:not(.winner-feed) .feed-list{max-height:300px}
 .winner-feed{min-height:0}
 .winner-round{font-size:15px;font-weight:400;color:#B3A894;margin-left:10px;letter-spacing:1px}
 /* 中奖名单区：不用滚动条，改为整行横向滚动 */
@@ -86,5 +84,8 @@
 .winner-campus{font-size:20px;font-weight:600;color:#DED5C7;letter-spacing:2px;margin-left:10px}
 @keyframes winner-scroll{from{transform:translateX(0)}to{transform:translateX(-100%)}}
 @media (prefers-reduced-motion:reduce){
-  .winner-marquee-inner{animation:none;padding-left:0}
+  /* 关闭动画时不再横向裁切：允许换行，并保留横向滚动兜底 */
+  .board-page .winner-list{overflow-x:auto;overflow-y:hidden;justify-content:flex-start}
+  .winner-marquee{overflow-x:auto}
+  .winner-marquee-inner{animation:none;padding-left:0;white-space:normal;display:block}
 }

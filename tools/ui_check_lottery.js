@@ -38,14 +38,64 @@ const ok = (c, m) => {
   await p.type('input[name=password]', 'admin123456');
   await Promise.all([p.waitForNavigation({ waitUntil: 'networkidle2' }), p.click('button[type=submit]')]);
 
-  // 找到活动 id
+  // 用一个「抽签端到端校验」专用活动：候选池里只有本脚本补录的三个人，
+  // 因此「中奖人必然出自这三人之一」成立，大屏断言才有意义。
+  // 专用活动只增不减（app/routes/admin.py 的活动删除在有抽奖轮次时会 500，属既有缺陷，不在本任务范围），
+  // 每次运行前先清空它的签到人员，保证候选池干净。
+  const MARK = '抽签端到端校验';
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
   await p.goto(BASE + '/admin/', { waitUntil: 'networkidle2' });
-  const ids = await p.evaluate(() => Array.from(document.querySelectorAll('a[href*="/admin/activity/"]'))
-    .map(a => (a.getAttribute('href').match(/activity\/(\d+)/) || [])[1]).filter(Boolean));
-  const aid = ids[0];
+  let aid = await p.evaluate((mark) => {
+    for (const tr of Array.from(document.querySelectorAll('table tbody tr'))) {
+      const t = tr.querySelector('.act-title');
+      if (!t || t.textContent.trim() !== mark) continue;
+      const a = tr.querySelector('a[href*="/admin/activity/"]');
+      const m = a && (a.getAttribute('href').match(/activity\/(\d+)/) || []);
+      if (m) return m[1];
+    }
+    return null;
+  }, MARK);
+  if (!aid) {
+    const created = await p.evaluate(async (title, startAt, endAt) => {
+      const body = new URLSearchParams({
+        title, start_at: startAt, end_at: endAt,
+        location: '端到端校验', campus_ids: '和慧南路校区',
+      });
+      const r = await fetch('/admin/activity/new', {
+        method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' }, body,
+      });
+      return { url: r.url, status: r.status };
+    }, MARK, fmt(new Date(now.getTime() - 3600e3)), fmt(new Date(now.getTime() + 7200e3)));
+    aid = (created.url.match(/activity\/(\d+)/) || [])[1];
+    ok(!!aid, '创建专用活动「' + MARK + '」→ id ' + aid);
+  } else {
+    ok(true, '复用专用活动「' + MARK + '」→ id ' + aid);
+  }
   ctx.aid = aid;
-  ok(!!aid, '找到活动 id: ' + aid);
   if (!aid) { await browser.close(); process.exit(1); }
+
+  // 清空专用活动里可能残留的签到人员（只影响本脚本自己的专用活动）
+  const purge = async () => p.evaluate(async (aid) => {
+    let n = 0;
+    for (let i = 0; i < 20; i++) {
+      const r = await fetch(`/api/activity/${aid}/live?_=${Date.now()}`);
+      if (!r.ok) break;
+      const d = await r.json();
+      const ids = (d.records || []).map(x => x.id).filter(Boolean);
+      if (!ids.length) break;
+      for (const id of ids) {
+        await fetch(`/api/checkin/${id}/delete`, {
+          method: 'POST', headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        n++;
+      }
+    }
+    return n;
+  }, aid);
+  const purged = await purge();
+  ok(true, '清空专用活动残留签到人员: ' + purged + ' 条');
 
   // 先补录三个人并签到（手机号/姓名本次运行唯一，保证脚本可重复运行）
   const people = [[NAME_A, PHONE_A], [NAME_B, PHONE_B], [NAME_C, PHONE_C]];
@@ -116,14 +166,44 @@ const ok = (c, m) => {
   ctx.historyRows = await p.evaluate(() => document.querySelectorAll('#lottery-history-body tr').length);
   ok(ctx.historyRows >= 1, '历史抽奖记录已写入表格（行数 ' + ctx.historyRows + '）');
 
-  // 大屏展示
+  // 大屏展示：断言必须能区分「真的渲染出中奖人」与「只显示静态占位文字」
+  const latest = await p.evaluate(async (aid) => {
+    const r = await fetch(`/api/activity/${aid}/lottery?_=${Date.now()}`);
+    const d = await r.json();
+    return d.latest ? { id: d.latest.id, winners: d.latest.winners } : null;
+  }, aid);
+  ctx.latest = latest;
+  const latestNames = ((latest && latest.winners) || []).map(w => (w && w.name) || '').filter(Boolean);
+
   const p2 = await browser.newPage();
   await p2.setViewport({ width: 1600, height: 1000 });
   await p2.goto(BASE + '/board/' + aid, { waitUntil: 'networkidle2' });
   await sleep(3000);
-  const boardText = await p2.evaluate(() => document.getElementById('winner-list') ? document.getElementById('winner-list').innerText : '');
-  ok(boardText.trim().length > 0, '大屏显示中奖名单: ' + boardText.replace(/\n/g, ' '));
+  const board = await p2.evaluate(() => {
+    const list = document.getElementById('winner-list');
+    const empty = document.getElementById('winner-empty');
+    return {
+      text: list ? list.innerText.trim() : '',
+      emptyDisplay: empty ? getComputedStyle(empty).display : '(缺失)',
+      emptyVisible: empty ? !!(empty.offsetParent || empty.getClientRects().length) : null,
+    };
+  });
+  ctx.board = board;
+  const boardText = board.text.replace(/\n/g, ' ');
+  // 1) 空状态占位必须已隐藏（否则说明没渲染中奖名单，只是留着静态文案）
+  ok(board.emptyDisplay === 'none' || board.emptyVisible === false,
+    '大屏空状态占位已隐藏（#winner-empty 不可见）: display=' + board.emptyDisplay + ', visible=' + board.emptyVisible);
+  // 2) 必须出现本轮中奖人姓名（本活动候选池只有本脚本补录的三人）
+  const hit = [NAME_A, NAME_B, NAME_C].find(n => board.text.includes(n));
+  ok(!!hit, '大屏显示中奖人姓名（应为 ' + [NAME_A, NAME_B, NAME_C].join(' / ') + ' 之一）: 实际文本="' + boardText + '"');
+  // 3) 必须与公开接口的最新一轮完全一致
+  ok(latestNames.length > 0 && latestNames.every(n => board.text.includes(n)),
+    '大屏文本与最新一轮中奖人一致: 接口=' + latestNames.join('、') + ' / 大屏="' + boardText + '"');
   await p2.screenshot({ path: SHOT + '/lottery-board.png' });
+
+  // 清理：清空专用活动的签到人员（活动本身复用，不删除）
+  const cleaned = await purge();
+  ok(true, '清理专用活动的签到人员: ' + cleaned + ' 条');
 
   await browser.close();
   if (failures) { console.log('\n共 ' + failures + ' 条断言失败'); process.exit(1); }
