@@ -2,9 +2,10 @@
 {% set sel_c = activity.campuses if activity else [] %}
 {% set sel_s = activity.stages if activity else [] %}
 {% set sel_j = activity.subjects if activity else [] %}
+{% set school_wide = activity.is_school_wide if activity else false %}
 {% block title %}{{ '编辑活动' if activity else '新建活动' }} · 会议扫码签到系统{% endblock %}
 {% block content %}
-<h2 style="margin:0 0 4px;color:#265171;font-size:20px">{{ '编辑活动' if activity else '新建活动' }}</h2>
+<h2 style="margin:0 0 4px;color:#3B5645;font-size:20px">{{ '编辑活动' if activity else '新建活动' }}</h2>
 <div class="muted small" style="margin-bottom:18px">设置参与范围、时间与地点；创建后可在后台导入名册并打开签到大屏。</div>
 
 <form method="post">
@@ -52,37 +53,47 @@
     <div class="field">
       <label>涉及校区</label>
       <div class="checks">
+        <label class="check {{ 'on' if school_wide else '' }}" id="schoolWideLabel">
+          <input type="checkbox" id="school_wide" name="school_wide" value="1" {{ 'checked' if school_wide else '' }}>
+          全校活动（三校区全体）
+        </label>
         {% for c in campuses %}
-        <label class="check {{ 'on' if c.name in sel_c else '' }}">
-          <input type="checkbox" name="campus_ids" value="{{ c.name }}" {{ 'checked' if c.name in sel_c else '' }}>
+        <label class="check {{ 'on' if c.name in sel_c else '' }} {{ 'off' if school_wide else '' }}">
+          <input type="checkbox" name="campus_ids" value="{{ c.name }}"
+                 {{ 'checked' if c.name in sel_c and not school_wide else '' }} {{ 'disabled' if school_wide else '' }}>
           {{ c.name }}
         </label>
         {% endfor %}
       </div>
     </div>
 
-    <div class="field">
+    <div class="field {{ 'off' if school_wide else '' }}" id="stageField">
       <label>涉及学段</label>
       <div class="checks">
         {% for s in stages %}
-        <label class="check {{ 'on' if s.name in sel_s else '' }}">
-          <input type="checkbox" name="stage_ids" value="{{ s.name }}" {{ 'checked' if s.name in sel_s else '' }}>
+        <label class="check {{ 'on' if s.name in sel_s else '' }} {{ 'off' if school_wide else '' }}">
+          <input type="checkbox" name="stage_ids" value="{{ s.name }}"
+                 {{ 'checked' if s.name in sel_s and not school_wide else '' }} {{ 'disabled' if school_wide else '' }}>
           {{ s.name }}
         </label>
         {% endfor %}
       </div>
     </div>
 
-    <div class="field">
+    <div class="field {{ 'off' if school_wide else '' }}" id="subjectField">
       <label>涉及学科</label>
       <div class="checks">
         {% for j in subjects %}
-        <label class="check {{ 'on' if j.name in sel_j else '' }}">
-          <input type="checkbox" name="subject_ids" value="{{ j.name }}" {{ 'checked' if j.name in sel_j else '' }}>
+        <label class="check {{ 'on' if j.name in sel_j else '' }} {{ 'off' if school_wide else '' }}">
+          <input type="checkbox" name="subject_ids" value="{{ j.name }}"
+                 {{ 'checked' if j.name in sel_j and not school_wide else '' }} {{ 'disabled' if school_wide else '' }}>
           {{ j.name }}
         </label>
         {% endfor %}
       </div>
+    </div>
+    <div class="muted small" id="schoolWideTip" {{ 'style="display:none"' if not school_wide else '' }}>
+      已选择「全校活动」：学段与学科不再参与筛选，可取消上方勾选后调整。
     </div>
   </div>
 
@@ -100,4 +111,54 @@
     {% endif %}
   </div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var sw = document.getElementById('school_wide');
+  if (!sw) return;
+  var campusBoxes = Array.prototype.slice.call(document.querySelectorAll('input[name=campus_ids]'));
+  var stageBoxes = Array.prototype.slice.call(document.querySelectorAll('input[name=stage_ids]'));
+  var subjectBoxes = Array.prototype.slice.call(document.querySelectorAll('input[name=subject_ids]'));
+  var tip = document.getElementById('schoolWideTip');
+  var stageField = document.getElementById('stageField');
+  var subjectField = document.getElementById('subjectField');
+  var wideLabel = document.getElementById('schoolWideLabel');
+
+  function setGroup(boxes, off) {
+    boxes.forEach(function (b) {
+      b.disabled = off;
+      if (off) b.checked = false;
+      var label = b.closest('.check');
+      if (label) {
+        label.classList.toggle('off', off);
+        label.classList.toggle('on', !off && b.checked);
+      }
+    });
+  }
+
+  function sync() {
+    var on = sw.checked;
+    setGroup(campusBoxes, on);
+    setGroup(stageBoxes, on);
+    setGroup(subjectBoxes, on);
+    if (tip) tip.style.display = on ? '' : 'none';
+    if (stageField) stageField.classList.toggle('off', on);
+    if (subjectField) subjectField.classList.toggle('off', on);
+    if (wideLabel) wideLabel.classList.toggle('on', on);
+  }
+
+  // 勾选状态变化时同步高亮（多选框由用户直接点击）
+  document.querySelectorAll('.check input').forEach(function (b) {
+    b.addEventListener('change', function () {
+      var label = b.closest('.check');
+      if (label) label.classList.toggle('on', b.checked);
+      if (b !== sw) sync();
+    });
+  });
+  sw.addEventListener('change', sync);
+  sync();
+})();
+</script>
 {% endblock %}

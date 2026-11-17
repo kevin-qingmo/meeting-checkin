@@ -36,6 +36,9 @@ SUBJECTS = [
     {"id": "j15", "name": "心理"},
 ]
 
+# 「全校活动」：跨全部校区的活动，用特殊值存进 campus_ids（无需改表结构）
+ALL_CAMPUS = "全校活动"
+
 
 class User(UserMixin, db.Model):
     __tablename__ = "users"
@@ -93,6 +96,11 @@ class Activity(db.Model):
     @property
     def is_archived(self):
         return self.status == "archived"
+
+    @property
+    def is_school_wide(self):
+        """是否为「全校活动」（跨全部校区，学段/学科不参与筛选）。"""
+        return ALL_CAMPUS in self.campuses
 
 
 class Roster(db.Model):

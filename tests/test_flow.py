@@ -332,3 +332,67 @@ def test_checkout_uses_its_own_code(client, app):
     _scan(client, app)
     r = _scan(client, app, mode="out")
     assert "签离成功" in r.get_data(as_text=True)
+
+
+# ---------- 10. 「全校活动」选项 ----------
+def test_school_wide_option_exists_in_form(client):
+    login(client)
+    body = client.get("/admin/activity/new").get_data(as_text=True)
+    assert "全校活动" in body
+    assert 'name="school_wide"' in body
+
+
+def test_school_wide_saves_all_campus_and_clears_stage_subject(client, app):
+    """勾选全校活动 → 校区记为全校活动，学段/学科清空。"""
+    login(client)
+    r = client.post("/admin/activity/new", data={
+        "title": "全校教师大会",
+        "school_wide": "1",
+        "campus_ids": ["敬慧路校区"],
+        "stage_ids": ["初中"],
+        "subject_ids": ["语文"],
+        "start_at": "2026-11-20T08:30",
+        "end_at": "2026-11-20T11:30",
+    }, follow_redirects=True)
+    assert r.status_code == 200
+    with app.app_context():
+        act = Activity.query.filter_by(title="全校教师大会").one()
+        assert act.is_school_wide is True
+        assert act.campuses == ["全校活动"]
+        assert act.stages == []
+        assert act.subjects == []
+
+
+def test_school_wide_edit_form_marks_checked_and_disables(client, app):
+    """编辑全校活动时：复选框选中，学段/学科输入框禁用。"""
+    login(client)
+    client.post("/admin/activity/new", data={
+        "title": "全校教研活动",
+        "school_wide": "1",
+        "start_at": "2026-11-20T08:30",
+        "end_at": "2026-11-20T11:30",
+    }, follow_redirects=True)
+    with app.app_context():
+        aid = Activity.query.filter_by(title="全校教研活动").one().id
+    body = client.get("/admin/activity/%d/edit" % aid).get_data(as_text=True)
+    assert "全校活动" in body
+    assert "disabled" in body
+
+
+def test_normal_activity_keeps_stage_subject(client, app):
+    """未勾选全校活动时，学段/学科照常保存。"""
+    login(client)
+    client.post("/admin/activity/new", data={
+        "title": "普通校区活动",
+        "campus_ids": ["和慧南路校区"],
+        "stage_ids": ["初中"],
+        "subject_ids": ["物理"],
+        "start_at": "2026-11-20T08:30",
+        "end_at": "2026-11-20T11:30",
+    }, follow_redirects=True)
+    with app.app_context():
+        act = Activity.query.filter_by(title="普通校区活动").one()
+        assert act.is_school_wide is False
+        assert act.campuses == ["和慧南路校区"]
+        assert act.stages == ["初中"]
+        assert act.subjects == ["物理"]

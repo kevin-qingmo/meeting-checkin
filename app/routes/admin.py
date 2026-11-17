@@ -9,7 +9,7 @@ from openpyxl import Workbook
 from ..access import (activity_stats, dict_campuses, dict_stages, dict_subjects,
                       get_managed_activity, live_payload, name_map)
 from ..extensions import db
-from ..models import Activity, CheckIn, Roster, Setting, User
+from ..models import ALL_CAMPUS, Activity, CheckIn, Roster, Setting, User
 from ..roster import import_roster
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -103,11 +103,20 @@ def _read_form(form):
         return None, "请填写活动结束时间"
     if end_at <= start_at:
         return None, "结束时间必须晚于开始时间"
+    # 「全校活动」：覆盖全部校区，学段/学科不参与筛选
+    if form.get("school_wide") in ("on", "1", "true", "yes"):
+        campus_ids = json.dumps([ALL_CAMPUS], ensure_ascii=False)
+        stage_ids = "[]"
+        subject_ids = "[]"
+    else:
+        campus_ids = _multi(form, "campus_ids")
+        stage_ids = _multi(form, "stage_ids")
+        subject_ids = _multi(form, "subject_ids")
     return {
         "title": title,
-        "campus_ids": _multi(form, "campus_ids"),
-        "stage_ids": _multi(form, "stage_ids"),
-        "subject_ids": _multi(form, "subject_ids"),
+        "campus_ids": campus_ids,
+        "stage_ids": stage_ids,
+        "subject_ids": subject_ids,
         "start_at": start_at,
         "end_at": end_at,
         "location": (form.get("location") or "").strip(),

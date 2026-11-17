@@ -3,10 +3,11 @@
 {% block content %}
 <div class="row" style="align-items:center;margin-bottom:16px">
   <div style="flex:3">
-    <h2 style="margin:0;color:#265171;font-size:20px">{{ activity.title }}</h2>
+    <h2 style="margin:0;color:#3B5645;font-size:20px">{{ activity.title }}</h2>
     <div class="muted small">
       {{ activity.start_at|dt }} 至 {{ activity.end_at|dt }} · {{ activity.location or '未填地点' }}
-      {% for c in activity.campuses %}<span class="tag">{{ c }}</span> {% endfor %}
+      {% if activity.is_school_wide %}<span class="tag y">全校活动</span>
+      {% else %}{% for c in activity.campuses %}<span class="tag">{{ c }}</span> {% endfor %}{% endif %}
       {% if activity.need_checkout %}<span class="tag y">需要签离</span>{% endif %}
     </div>
   </div>

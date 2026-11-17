@@ -7,21 +7,21 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <style>
-    body{background:radial-gradient(900px 600px at 50% -10%, #EDF5F9 0%, #E4EFF7 60%, #DCEAF4 100%)}
+    body{background:radial-gradient(900px 600px at 50% -10%, #F7F6EE 0%, #EFEFDF 60%, #E7E7D6 100%)}
     .scan-wrap{max-width:460px;margin:0 auto;padding:26px 18px 48px}
     .scan-head{text-align:center;margin-bottom:18px}
-    .scan-head h1{font-size:20px;margin:0 0 6px;color:#265171}
-    .scan-head .meta{color:#548490;font-size:13px}
-    .scan-card{background:#fff;border:1px solid #D8E8F0;border-radius:18px;padding:24px 22px;color:#265171;
-      box-shadow:0 12px 32px rgba(38,81,113,.08)}
-    .scan-card label{color:#548490}
-    .scan-card input,.scan-card select{background:#F7FBFD;color:#265171;border-color:#D8E8F0}
+    .scan-head h1{font-size:20px;margin:0 0 6px;color:#3B5645}
+    .scan-head .meta{color:#4E6B55;font-size:13px}
+    .scan-card{background:#fff;border:1px solid #DFE3D2;border-radius:18px;padding:24px 22px;color:#3B5645;
+      box-shadow:0 12px 32px rgba(43,66,53,.08)}
+    .scan-card label{color:#4E6B55}
+    .scan-card input,.scan-card select{background:#F6F6EC;color:#343635;border-color:#DFE3D2}
     .scan-card .btn{width:100%;justify-content:center;padding:13px;font-size:16px}
     .code-box{display:flex;gap:10px;align-items:center}
     .code-box input{font-size:26px;letter-spacing:8px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
-    .hint{font-size:12px;color:#8AA8B3;text-align:center;margin:-6px 0 14px}
+    .hint{font-size:12px;color:#8A9484;text-align:center;margin:-6px 0 14px}
     .result{border-radius:12px;padding:14px;margin-bottom:16px;font-size:15px;display:none}
-    .result.ok{display:block;background:rgba(107,142,127,.14);color:#4F6E62;border:1px solid rgba(107,142,127,.5)}
+    .result.ok{display:block;background:rgba(94,140,110,.14);color:#4A6E57;border:1px solid rgba(94,140,110,.5)}
     .result.err{display:block;background:rgba(201,106,106,.12);color:#B05757;border:1px solid rgba(201,106,106,.45)}
     .status-warn{background:rgba(186,154,109,.16);border:1px solid rgba(186,154,109,.42);color:#8A6E44;
       padding:10px 14px;border-radius:10px;font-size:13px;margin-bottom:16px;text-align:center}
