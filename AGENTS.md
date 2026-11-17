@@ -80,6 +80,27 @@ cd "D:\MiniMax工作站\签到系统"
   Railway 本身通畅（`backboard.railway.com` 200），**走 Railway 邮箱登录（Log in using email）可绕开 GitHub**。
 - `git push` 在 GitHub 不通时同样失败 → 部署改用 `railway up` 直接上传源码，不依赖 GitHub。
 
+### 弱网优化机制（2026-11-17 新增，重要）
+
+服务器部署在 Railway 美西节点（SFO），**实测国内到该链路丢包 83%、单次 TCP+TLS 握手 15~60 秒**，
+浏览器并行拉多个静态资源时连接池被打满 → 表现为「网页一直转圈、加载不出内容」。
+排查证据：`ping` 丢包率 + `curl -w '%{time_connect}'` 握手耗时 + `railway logs`（应用侧无异常）。
+
+因此内置以下机制（改代码时不要破坏）：
+
+| 机制 | 位置 | 说明 |
+|---|---|---|
+| 首屏资源内联 | `app/assets.py` + 各模板 | CSS/JS/校徽进 HTML，每页从 4 个请求降为 1 个 |
+| 校徽压缩 | `tools/optimize_logo.py` | 277KB → 13.8KB（112px + 64 色量化） |
+| gzip | `app/__init__.py` 的 `maybe_gzip` | HTML/JSON/CSS/JS 压缩传输 |
+| 静态长缓存 | `SEND_FILE_MAX_AGE_DEFAULT` | 1 天，二次打开不再握手 |
+| 轮询超时退避 | `app/static/js/board.js`、`admin/dashboard.html` | 8s 超时 + 指数退避(2~15s) + 在途防抖 |
+| DB 连接探活 | `app/config.py` 的 `engine_options` | `pool_pre_ping` + `pool_recycle=300` |
+| 签到码容忍窗 | `app/codes.py` 的 `verify` | 默认接受往前 2 个周期（`CYCLE_GRACE` 可配） |
+
+- 量首屏体积：`tools/measure_firstpaint.py`（本地对比内联前后）。
+- 相关测试：`tests/test_weaknet.py`（15 项断言）。
+
 
 ### Windows / PowerShell
 
@@ -98,6 +119,9 @@ cd "D:\MiniMax工作站\签到系统"
   `ModuleNotFoundError: No module named 'psycopg'`。`requirements.txt` 必须有 `psycopg[binary]==3.2.3`。
 - **pip 默认源安装超时（300s）** → 用 `-i https://pypi.tuna.tsinghua.edu.cn/simple`。
 - **urllib 跟随重定向会丢 `Set-Cookie`** → 会话类脚本用 `http.cookiejar.CookieJar`（`tools/cross_instance_check.py` 已改）。
+- **把静态资源内联进模板时，助手函数必须返回 `markupsafe.Markup`**：Jinja 默认 HTML 转义会把 JS 的 `=>`、`&` 改写掉，脚本静默失效（页面正常但没反应）。见 `app/assets.py`。
+- **`app.config["SEND_FILE_MAX_AGE_DEFAULT"]` 必须直接赋值**（Flask 默认已存在且为 `None`，`setdefault` 不生效）。
+- **模块级缓存函数要从缓存取返回值**（`return _cache[key]`），写成 `return uri` 会导致第二次请求 UnboundLocalError → 首个 200、后续全 500。
 - 本机 Python：`D:\MiniMax工作站\签到系统\.venv\Scripts\python.exe`（Python 3.14.5）。启动服务：
   ```powershell
   $env:BASE_URL='http://localhost:5055'
