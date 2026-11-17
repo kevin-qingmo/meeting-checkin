@@ -34,6 +34,29 @@ def _multi(form, field):
     return json.dumps([v for v in form.getlist(field) if v], ensure_ascii=False)
 
 
+def _parse_uid(raw):
+    """解析表单里的账号 id，非法值一律返回 None（不抛异常）。
+
+    int() 对 '²' 等 Unicode 非十进制数字会抛 ValueError，未捕获会变成 500；
+    所有按 id 取账号的分支都必须走这里，统一按「账号不存在」处理。
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _find_user(raw_uid):
+    """按表单里的账号 id 取用户；id 非法或账号不存在一律返回 None。"""
+    uid = _parse_uid(raw_uid)
+    if uid is None:
+        return None
+    return db.session.get(User, uid)
+
+
 @bp.route("/")
 @login_required
 def activities():
@@ -143,6 +166,9 @@ def activity_delete(activity_id):
     """彻底删除活动（含名册与全部签到记录，不可恢复）。"""
     act = get_managed_activity(activity_id)
     title = act.title
+    # 按依赖顺序清理：抽签轮次 → 签到 → 名册 → 活动
+    # （LotteryRound.activity_id 是 NOT NULL 外键，不先删轮次会 IntegrityError 500）
+    LotteryRound.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
     CheckIn.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
     Roster.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
     db.session.delete(act)
@@ -300,48 +326,46 @@ def users():
                 db.session.commit()
                 flash("账号已创建", "success")
         elif action == "toggle":
-            uid = request.form.get("uid")
-            u = db.session.get(User, int(uid)) if uid else None
-            if u and u.id != current_user.id:
+            u = _find_user(request.form.get("uid"))
+            if u is None:
+                flash("账号不存在", "error")
+            elif u.id != current_user.id:
                 u.active = not u.active
                 db.session.commit()
                 flash("已更新账号状态", "success")
         elif action == "reset":
-            uid = request.form.get("uid")
             password = request.form.get("password") or ""
-            u = db.session.get(User, int(uid)) if uid else None
-            if u and len(password) >= 6:
+            u = _find_user(request.form.get("uid"))
+            if u is None:
+                flash("账号不存在", "error")
+            elif len(password) >= 6:
                 u.set_password(password)
                 db.session.commit()
                 flash("密码已重置", "success")
             else:
                 flash("密码至少 6 位", "error")
         elif action == "role":
-            uid = request.form.get("uid")
-            u = db.session.get(User, int(uid)) if uid else None
-            if u and u.id != current_user.id:
+            u = _find_user(request.form.get("uid"))
+            if u is None:
+                flash("账号不存在", "error")
+            elif u.id != current_user.id:
                 u.role = "super" if u.role != "super" else "admin"
                 db.session.commit()
                 flash("已更新角色", "success")
         elif action == "rename":
-            uid = request.form.get("uid")
             display_name = (request.form.get("display_name") or "").strip()
-            u = db.session.get(User, int(uid)) if uid else None
-            if u and display_name:
+            u = _find_user(request.form.get("uid"))
+            if u is None:
+                flash("账号不存在", "error")
+            elif display_name:
                 u.display_name = display_name
                 db.session.commit()
                 flash("姓名已更新", "success")
             else:
                 flash("请填写姓名", "error")
         elif action == "delete":
-            raw_uid = (request.form.get("uid") or "").strip()
-            # 非法参数必须兜住：int() 对 '²' 等 Unicode 非十进制数字会抛 ValueError，
-            # 未捕获会变成 500，这里一律按「账号不存在」处理。
-            try:
-                uid = int(raw_uid) if raw_uid else None
-            except (TypeError, ValueError):
-                uid = None
-            u = db.session.get(User, uid) if uid is not None else None
+            # 非法参数必须兜住（见 _parse_uid）：一律按「账号不存在」处理
+            u = _find_user(request.form.get("uid"))
             if u is None:
                 flash("账号不存在", "error")
             elif u.id == current_user.id:

@@ -188,6 +188,27 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
   模型侧用 `Activity.is_school_wide` 判断；模板里活动列表/看板显示金色 `全校活动` 标记。
 - 服务端 `_read_form()` 里 `school_wide` 为真时强制覆盖校区/学段/学科，**不依赖 JS**。
 
+## 随机抽签机制（2026-11-17 新增）
+
+- 数据表 `lottery_rounds`：每次抽取落一条（人数 / 中奖名单 JSON / 是否排除已中奖 / 操作人 / 时间）。
+- 领域逻辑集中在 `app/lottery.py`：`candidate_pool`（只取已签到）、`past_winner_keys`（历史中奖人）、
+  `draw`（`secrets.SystemRandom().sample`）、`save_round`、`recent_rounds`。
+- 去重键：手机号优先 `p:<phone>`，否则 `n:<姓名>|<校区>`。
+- 接口：`POST /admin/activity/<id>/lottery`（登录+活动归属）、`GET /api/activity/<id>/lottery`（**公开只读**，大屏用；中奖人手机号不外泄）。
+- 大屏 `board.js` 每 5 秒轮询抽签接口，`winner-marquee` CSS 动画滚动展示最新一轮名单。
+- Excel 导出第 4 张表「抽奖记录」。
+- 活动删除、账号删除都会级联清理 `lottery_rounds`。
+
+## 账号删除机制（2026-11-17 新增）
+
+- 「账号管理」里，创建者可删除**普通管理员**账号；不能删当前登录的账号（自删），也不能删另一个创建者账号。
+- 删除时，该账号名下的活动/名册/签到一并删除，活动按 **抽签轮次 → 签到 → 名册 → 活动** 的顺序清理
+  （`Activity.owner_id` 是 NOT NULL 外键，必须先删活动再删用户；`LotteryRound.activity_id` 同理，不先删轮次会 IntegrityError）。
+- 该账号在**别人**活动上留下的「操作人」引用会被显式置空：`CheckIn.operator_id`、`LotteryRound.operator_id` → NULL
+  （本地 SQLite 默认不执行外键、ORM 也不会自动置空，所以必须在代码里显式处理；生产 Postgres 同样安全）。
+- 表格里的账号 id 一律经 `app/routes/admin.py` 的 `_parse_uid()` / `_find_user()` 解析：非法值（如 `²`）
+  一律按「账号不存在」提示，**不得 500**。
+
 ## 目录速查
 
 | 路径 | 内容 |

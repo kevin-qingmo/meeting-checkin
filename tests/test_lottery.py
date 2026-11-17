@@ -826,6 +826,84 @@ def test_delete_account_integrity_error_shows_friendly_message(client, app, monk
         assert db.session.get(User, other_id) is not None
 
 
+# ---------------------------------------------------------------- 活动删除级联抽签记录
+
+
+def test_delete_activity_also_removes_lottery_rounds(client, app):
+    """删除抽过奖的活动必须成功（不得 500），并连带清掉轮次、签到、名册与活动本身。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    with app.app_context():
+        db.session.add(Roster(activity_id=aid, name="张三", campus="敬慧路校区"))
+        db.session.commit()
+    login(client)
+    r = client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    assert r.status_code == 200
+    with app.app_context():
+        assert LotteryRound.query.filter_by(activity_id=aid).count() == 1
+
+    resp = client.post("/admin/activity/%d/delete" % aid, follow_redirects=True)
+    assert resp.status_code == 200
+    with app.app_context():
+        assert LotteryRound.query.filter_by(activity_id=aid).count() == 0
+        assert CheckIn.query.filter_by(activity_id=aid).count() == 0
+        assert Roster.query.filter_by(activity_id=aid).count() == 0
+        assert Activity.query.filter_by(id=aid).count() == 0
+
+
+# ---------------------------------------------------------------- 账号参数兜底
+
+
+def _teacher2_state(app):
+    """返回 teacher2 账号的关键状态（id / 角色 / 启用 / 姓名）。"""
+    with app.app_context():
+        u = User.query.filter_by(username="teacher2").one()
+        return u.id, u.role, u.active, u.display_name
+
+
+def test_toggle_with_invalid_uid_returns_friendly_error(client, app):
+    """非法 uid（如上标数字 '²'）不得 500，必须给出友好提示且账号状态不变。"""
+    login(client)
+    _, _, active_before, _ = _teacher2_state(app)
+    r = client.post("/admin/users", data={"action": "toggle", "uid": "²"},
+                    follow_redirects=True)
+    assert r.status_code == 200
+    assert "账号不存在" in r.get_data(as_text=True)
+    with app.app_context():
+        u = User.query.filter_by(username="teacher2").one()
+        assert u.active == active_before
+
+
+def test_role_with_invalid_uid_returns_friendly_error(client, app):
+    """非法 uid 走角色分支同样不得 500，且角色不得被误改。"""
+    login(client)
+    _, role_before, _, _ = _teacher2_state(app)
+    r = client.post("/admin/users", data={"action": "role", "uid": "²"},
+                    follow_redirects=True)
+    assert r.status_code == 200
+    assert "账号不存在" in r.get_data(as_text=True)
+    with app.app_context():
+        u = User.query.filter_by(username="teacher2").one()
+        assert u.role == role_before
+
+
+def test_reset_and_rename_with_invalid_uid_return_friendly_error(client, app):
+    """重置密码 / 改姓名两个分支对非法 uid 也要兜住，且不得误改数据。"""
+    login(client)
+    _, _, _, name_before = _teacher2_state(app)
+    for action, extra in (("reset", {"password": "newpass123"}),
+                          ("rename", {"display_name": "被误改"})):
+        r = client.post("/admin/users",
+                        data=dict({"action": action, "uid": "²"}, **extra),
+                        follow_redirects=True)
+        assert r.status_code == 200, action
+        assert "账号不存在" in r.get_data(as_text=True), action
+    with app.app_context():
+        u = User.query.filter_by(username="teacher2").one()
+        assert u.display_name == name_before
+        assert u.check_password("teacher123456")
+
+
 # ---------------------------------------------------------------- 导出抽奖记录
 
 
