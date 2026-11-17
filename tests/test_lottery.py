@@ -496,3 +496,17 @@ def test_past_winner_keys_ignores_malformed_entries(app):
         db.session.commit()
         keys = app_lottery.past_winner_keys(act)
         assert keys == {app_lottery.person_key("张三", "敬慧路校区", "13800000001")}
+
+
+def test_dashboard_has_lottery_card(client, app):
+    """后台活动页必须包含「随机抽签」卡片及其关键元素 id。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    login(client)
+    body = client.get("/admin/activity/%d/dashboard" % aid).get_data(as_text=True)
+    assert "随机抽签" in body
+    assert 'id="lottery-count"' in body
+    assert 'id="lottery-exclude"' in body
+    assert 'id="lottery-history"' in body
+    assert 'id="lottery-overlay"' in body
+    assert 'id="lottery-winners"' in body
+    assert 'id="lottery-close"' in body
