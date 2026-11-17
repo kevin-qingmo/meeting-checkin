@@ -396,3 +396,39 @@ def test_normal_activity_keeps_stage_subject(client, app):
         assert act.campuses == ["和慧南路校区"]
         assert act.stages == ["初中"]
         assert act.subjects == ["物理"]
+
+
+# ---------- 11. 校徽校名与「创建者」角色 ----------
+def test_header_shows_school_name_and_logo(client):
+    login(client)
+    body = client.get("/admin/").get_data(as_text=True)
+    assert "天津海河教育园区南开学校" in body
+    assert "img_school_logo.png" in body
+
+
+def test_login_page_shows_school_name(client):
+    body = client.get("/login").get_data(as_text=True)
+    assert "天津海河教育园区南开学校" in body
+
+
+def test_super_admin_is_labelled_creator(client):
+    """超级管理员在界面上显示为「创建者」。"""
+    login(client)
+    body = client.get("/admin/").get_data(as_text=True)
+    assert "（创建者）" in body
+    users_page = client.get("/admin/users").get_data(as_text=True)
+    assert "创建者" in users_page
+    assert "超级管理员" not in users_page
+
+
+def test_rename_display_name(client, app):
+    """创建者可以在账号管理里改自己的姓名。"""
+    login(client)
+    with app.app_context():
+        uid = User.query.filter_by(username="admin").one().id
+    r = client.post("/admin/users", data={
+        "action": "rename", "uid": str(uid), "display_name": "吴洪凯",
+    }, follow_redirects=True)
+    assert "姓名已更新" in r.get_data(as_text=True)
+    with app.app_context():
+        assert db.session.get(User, uid).display_name == "吴洪凯"

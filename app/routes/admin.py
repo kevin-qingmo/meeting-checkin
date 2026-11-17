@@ -266,6 +266,16 @@ def users():
                 u.role = "super" if u.role != "super" else "admin"
                 db.session.commit()
                 flash("已更新角色", "success")
+        elif action == "rename":
+            uid = request.form.get("uid")
+            display_name = (request.form.get("display_name") or "").strip()
+            u = db.session.get(User, int(uid)) if uid else None
+            if u and display_name:
+                u.display_name = display_name
+                db.session.commit()
+                flash("姓名已更新", "success")
+            else:
+                flash("请填写姓名", "error")
     return render_template("admin/users.html", users=User.query.order_by(User.id).all())
 
 

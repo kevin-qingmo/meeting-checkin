@@ -7,6 +7,10 @@
 {% endblock %}
 {% block content %}
 <div class="board">
+  <div class="board-corner">
+    <img class="school-logo" src="{{ url_for('static', filename='img_school_logo.png') }}" alt="天津海河教育园区南开学校校徽">
+    <span class="school-name">天津海河教育园区南开学校</span>
+  </div>
   <header class="board-head">
     <h1>{{ activity.title }}</h1>
     <div class="board-sub">

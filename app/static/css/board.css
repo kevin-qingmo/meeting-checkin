@@ -4,8 +4,14 @@
  */
 .board-page{background:radial-gradient(1200px 700px at 50% -10%, #4A4439 0%, #2C2A26 58%, #1F1E1B 100%)}
 .board-page .wrap{max-width:1360px;margin:0 auto;padding:34px 24px 40px}
-.board{min-height:100vh}
-.board-head{text-align:center;margin-bottom:22px}
+.board{min-height:100vh;position:relative}
+/* 大屏左上角校徽 + 校名 */
+.board-corner{position:absolute;left:24px;top:20px;display:flex;align-items:center;gap:10px;opacity:.92;z-index:5}
+.board-corner .school-logo{width:46px;height:46px;border-radius:12px;background:#fff;padding:3px;
+  border:1px solid rgba(212,180,140,.55);box-shadow:0 2px 12px rgba(0,0,0,.4);object-fit:contain}
+.board-corner .school-name{font-size:15px;color:#DED5C7;letter-spacing:2px}
+@media (max-width:1100px){.board-corner{display:none}}
+.board-head{text-align:center;margin-bottom:22px;padding-top:16px}
 .board-head h1{margin:0 0 8px;font-size:34px;color:#F5F1EC;letter-spacing:3px}
 .board-sub{color:#DED5C7;font-size:16px}
 .mode-badge{display:inline-block;margin-top:14px;padding:9px 30px;border-radius:999px;font-size:17px;font-weight:700;
