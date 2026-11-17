@@ -1,57 +1,61 @@
-.board-page{background:radial-gradient(1200px 700px at 50% -10%, #1b2742 0%, #0f1729 60%, #0b1120 100%)}
+/* 签到大屏 · 水彩 A「海鸥蓝」深色变体
+ * 背景用深海鸥蓝系，保证会场投影时对比度足够；
+ * 已签到=蓝、已签离=绿 的语义保持不变。
+ */
+.board-page{background:radial-gradient(1200px 700px at 50% -10%, #2E6183 0%, #265171 58%, #1B4359 100%)}
 .board-page .wrap{max-width:1360px;margin:0 auto;padding:34px 24px 40px}
 .board{min-height:100vh}
 .board-head{text-align:center;margin-bottom:22px}
 .board-head h1{margin:0 0 8px;font-size:34px;color:#fff;letter-spacing:1px}
-.board-sub{color:#9fb0c9;font-size:16px}
+.board-sub{color:#BFDCEC;font-size:16px}
 .mode-badge{display:inline-block;margin-top:14px;padding:9px 30px;border-radius:999px;font-size:17px;font-weight:700;
-  background:rgba(34,197,94,.16);color:#4ade80;border:1px solid rgba(34,197,94,.4)}
-.mode-badge.out{background:rgba(245,158,11,.16);color:#fbbf24;border-color:rgba(245,158,11,.42)}
+  background:rgba(107,142,127,.2);color:#8FC7AE;border:1px solid rgba(107,142,127,.45)}
+.mode-badge.out{background:rgba(186,154,109,.2);color:#E0C79C;border-color:rgba(186,154,109,.48)}
 
-.board-warn{background:linear-gradient(90deg,#8a3b12,#7c2d12);border:1px solid #b45309;color:#fde68a;
+.board-warn{background:rgba(186,154,109,.18);border:1px solid rgba(186,154,109,.45);color:#EBD5B2;
   padding:14px 20px;border-radius:12px;margin-bottom:22px;font-size:16px}
 
 .board-main{display:grid;grid-template-columns:minmax(380px,1fr) minmax(380px,1.05fr);gap:28px;align-items:start}
 @media (max-width:900px){.board-main{grid-template-columns:1fr}}
 
-.qr-card{background:#fff;border-radius:20px;padding:26px 26px 22px;color:#0f1729;text-align:center;
-  box-shadow:0 22px 50px rgba(0,0,0,.35)}
-.qr-frame{border:2px solid #22c55e;border-radius:16px;padding:14px;display:inline-block;background:#fff}
+.qr-card{background:#fff;border-radius:20px;padding:26px 26px 22px;color:#265171;text-align:center;
+  box-shadow:0 22px 50px rgba(10,32,46,.45)}
+.qr-frame{border:2px solid #AFD8EE;border-radius:16px;padding:14px;display:inline-block;background:#fff}
 .qr-frame img{display:block;width:300px;height:300px;image-rendering:pixelated}
-.qr-tip{margin-top:16px;font-size:24px;font-weight:800;color:#16a34a}
-.qr-hint{margin-top:4px;font-size:14px;color:#64748b}
-.site-code-label{margin-top:20px;font-size:15px;color:#64748b}
-.site-code{font-size:46px;font-weight:800;letter-spacing:10px;color:#2563eb;font-variant-numeric:tabular-nums}
+.qr-tip{margin-top:16px;font-size:24px;font-weight:800;color:#265171}
+.qr-hint{margin-top:4px;font-size:14px;color:#8AA8B3}
+.site-code-label{margin-top:20px;font-size:15px;color:#548490}
+.site-code{font-size:46px;font-weight:800;letter-spacing:10px;color:#265171;font-variant-numeric:tabular-nums}
 /* 倒计时条：蓝色贴左端，右边缘随剩余时间从右向左退缩 */
-.bar{height:9px;border-radius:99px;background:#e2e8f0;overflow:hidden;margin:12px 6px 8px;
+.bar{height:9px;border-radius:99px;background:#E4EFF7;overflow:hidden;margin:12px 6px 8px;
   display:flex;justify-content:flex-start}
-.bar-fill{height:100%;width:100%;background:linear-gradient(90deg,#2563eb,#3b82f6);
+.bar-fill{height:100%;width:100%;background:linear-gradient(90deg,#265171,#4E93B8);
   border-radius:99px;transition:width .25s linear}
-.refresh-tip{font-size:13px;color:#94a3b8}
+.refresh-tip{font-size:13px;color:#8AA8B3}
 
 .board-side{display:flex;flex-direction:column;gap:18px}
 .stat-row{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.stat-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:18px;
+.stat-card{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:18px;
   padding:26px;text-align:center;backdrop-filter:blur(6px)}
 .stat-card .num{font-size:52px;font-weight:800;line-height:1.1}
-.stat-card.blue .num{color:#4d94ff}
-.stat-card.green .num{color:#22c55e}
-.stat-card .lbl{color:#9fb0c9;font-size:15px;margin-top:4px}
+.stat-card.blue .num{color:#7CC0E8}
+.stat-card.green .num{color:#8FC7AE}
+.stat-card .lbl{color:#BFDCEC;font-size:15px;margin-top:4px}
 
-.feed{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:18px;
+.feed{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:18px;
   padding:18px 20px;flex:1;min-height:320px;display:flex;flex-direction:column}
-.feed-head{font-size:16px;font-weight:700;color:#e8eef8;margin-bottom:10px}
+.feed-head{font-size:16px;font-weight:700;color:#E8F4FA;margin-bottom:10px}
 .feed-list{flex:1;overflow-y:auto;max-height:420px;padding-right:6px}
 .feed-list::-webkit-scrollbar{width:8px}
 .feed-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:8px}
 .feed-row{display:grid;grid-template-columns:1.1fr 1.3fr auto auto;gap:12px;align-items:center;
-  padding:11px 6px;border-bottom:1px solid rgba(255,255,255,.07);font-size:15px}
+  padding:11px 6px;border-bottom:1px solid rgba(255,255,255,.09);font-size:15px}
 .feed-row .who{font-weight:600;color:#fff}
-.feed-row .campus{color:#9fb0c9}
-.feed-row .time{color:#cbd5e1;font-size:13px;font-variant-numeric:tabular-nums}
+.feed-row .campus{color:#BFDCEC}
+.feed-row .time{color:rgba(255,255,255,.62);font-size:13px;font-variant-numeric:tabular-nums}
 .feed-row .tag{white-space:nowrap}
 
 .board-foot{text-align:center;margin-top:28px}
-.switch-mode{background:#2563eb;border:none;color:#fff;font-size:18px;font-weight:700;padding:14px 34px;
-  border-radius:12px;cursor:pointer;font-family:inherit}
-.switch-mode:hover{background:#1d4ed8}
+.switch-mode{background:#3F7CA3;border:1px solid rgba(255,255,255,.2);color:#fff;font-size:18px;font-weight:700;
+  padding:14px 34px;border-radius:12px;cursor:pointer;font-family:inherit}
+.switch-mode:hover{background:#356A8C}

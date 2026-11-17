@@ -7,22 +7,23 @@
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <style>
-    body{background:radial-gradient(900px 600px at 50% -10%, #1b2742 0%, #0f1729 60%, #0b1120 100%)}
+    body{background:radial-gradient(900px 600px at 50% -10%, #EDF5F9 0%, #E4EFF7 60%, #DCEAF4 100%)}
     .scan-wrap{max-width:460px;margin:0 auto;padding:26px 18px 48px}
     .scan-head{text-align:center;margin-bottom:18px}
-    .scan-head h1{font-size:20px;margin:0 0 6px;color:#fff}
-    .scan-head .meta{color:#9fb0c9;font-size:13px}
-    .scan-card{background:#fff;border-radius:18px;padding:24px 22px;color:#0f1729}
-    .scan-card label{color:#64748b}
-    .scan-card input,.scan-card select{background:#f8fafc;color:#0f1729;border-color:#cbd5e1}
+    .scan-head h1{font-size:20px;margin:0 0 6px;color:#265171}
+    .scan-head .meta{color:#548490;font-size:13px}
+    .scan-card{background:#fff;border:1px solid #D8E8F0;border-radius:18px;padding:24px 22px;color:#265171;
+      box-shadow:0 12px 32px rgba(38,81,113,.08)}
+    .scan-card label{color:#548490}
+    .scan-card input,.scan-card select{background:#F7FBFD;color:#265171;border-color:#D8E8F0}
     .scan-card .btn{width:100%;justify-content:center;padding:13px;font-size:16px}
     .code-box{display:flex;gap:10px;align-items:center}
     .code-box input{font-size:26px;letter-spacing:8px;text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
-    .hint{font-size:12px;color:#94a3b8;text-align:center;margin:-6px 0 14px}
+    .hint{font-size:12px;color:#8AA8B3;text-align:center;margin:-6px 0 14px}
     .result{border-radius:12px;padding:14px;margin-bottom:16px;font-size:15px;display:none}
-    .result.ok{display:block;background:#dcfce7;color:#15803d;border:1px solid #86efac}
-    .result.err{display:block;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5}
-    .status-warn{background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.4);color:#fcd34d;
+    .result.ok{display:block;background:rgba(107,142,127,.14);color:#4F6E62;border:1px solid rgba(107,142,127,.5)}
+    .result.err{display:block;background:rgba(201,106,106,.12);color:#B05757;border:1px solid rgba(201,106,106,.45)}
+    .status-warn{background:rgba(186,154,109,.16);border:1px solid rgba(186,154,109,.42);color:#8A6E44;
       padding:10px 14px;border-radius:10px;font-size:13px;margin-bottom:16px;text-align:center}
   </style>
 </head>
