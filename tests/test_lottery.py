@@ -528,3 +528,153 @@ def test_dashboard_lottery_history_uses_record_id_and_validates_count(client, ap
     assert "抽取人数需为大于 0 的整数" in body
     # 弹层支持 ESC 键关闭
     assert "Escape" in body
+
+
+# ---------------------------------------------------------------- 账号删除
+
+
+def _teacher2_id(app):
+    with app.app_context():
+        return User.query.filter_by(username="teacher2").one().id
+
+
+def test_creator_can_delete_admin_account(client, app):
+    login(client)
+    with app.app_context():
+        other = User.query.filter_by(username="teacher2").one()
+        uid = other.id
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(uid)},
+                    follow_redirects=True)
+    assert "已删除账号" in r.get_data(as_text=True)
+    with app.app_context():
+        assert User.query.get(uid) is None
+
+
+def test_delete_account_cascades_its_activities(client, app):
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    login(client)
+    with app.app_context():
+        other = User.query.filter_by(username="teacher2").one()
+        other_id = other.id
+        act = Activity(title="待删除活动", owner_id=other_id,
+                       start_at=datetime.now(), end_at=datetime.now() + timedelta(hours=1))
+        db.session.add(act)
+        db.session.commit()
+        act_id = act.id
+        db.session.add(Roster(activity_id=act_id, name="李四", campus="敬慧路校区"))
+        db.session.add(CheckIn(activity_id=act_id, name="李四", phone="13800000009",
+                               campus="敬慧路校区", code_used="1234", mode="in",
+                               source="manual", checked_in_at=datetime.now()))
+        db.session.add(LotteryRound(activity_id=act_id, draw_count=1,
+                                    winners_json="[]", excluded=True, operator_id=other_id))
+        db.session.commit()
+    client.post("/admin/users", data={"action": "delete", "uid": str(other_id)})
+    with app.app_context():
+        assert db.session.get(Activity, act_id) is None
+        assert CheckIn.query.filter_by(activity_id=act_id).count() == 0
+        assert Roster.query.filter_by(activity_id=act_id).count() == 0
+        assert LotteryRound.query.filter_by(activity_id=act_id).count() == 0
+
+
+def test_cannot_delete_current_account(client, app):
+    login(client)
+    with app.app_context():
+        uid = User.query.filter_by(username="admin").one().id
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(uid)},
+                    follow_redirects=True)
+    body = r.get_data(as_text=True)
+    assert "不能删除当前登录的账号" in body
+    with app.app_context():
+        assert User.query.get(uid) is not None
+
+
+def test_normal_admin_cannot_delete_accounts(client, app):
+    login(client, "teacher2", "teacher123456")
+    with app.app_context():
+        uid = User.query.filter_by(username="admin").one().id
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(uid)})
+    assert r.status_code == 403
+    with app.app_context():
+        assert User.query.get(uid) is not None
+
+
+def test_delete_account_clears_operator_references(client, app):
+    """删账号后不得残留任何指向该用户的操作人引用（本地 SQLite 不执行外键，需显式断言）。
+
+    覆盖两种情形：该用户在**别人**的活动上补录过签到、该用户在别人活动上做过抽签。
+    """
+    aid = app.config["TEST_ACTIVITY_ID"]
+    login(client)
+    other_id = _teacher2_id(app)
+    with app.app_context():
+        db.session.add(CheckIn(activity_id=aid, name="王五", phone="13800000007",
+                               campus="敬慧路校区", code_used="1234", mode="in",
+                               source="manual", checked_in_at=datetime.now(),
+                               operator_id=other_id))
+        db.session.add(LotteryRound(activity_id=aid, draw_count=1,
+                                    winners_json="[]", excluded=True, operator_id=other_id))
+        db.session.commit()
+
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(other_id)},
+                    follow_redirects=True)
+    assert "已删除账号" in r.get_data(as_text=True)
+
+    with app.app_context():
+        assert User.query.get(other_id) is None
+        # 该用户作为操作人的记录：引用被置空（记录本身若属于他人活动则保留）
+        assert CheckIn.query.filter(CheckIn.operator_id == other_id).count() == 0
+        assert LotteryRound.query.filter(LotteryRound.operator_id == other_id).count() == 0
+        # 显式悬空引用查询（不依赖 SQLite 外键约束）
+        dangling_checkin = db.session.query(CheckIn).filter(
+            CheckIn.operator_id.isnot(None),
+            ~db.session.query(User.id).filter(User.id == CheckIn.operator_id).exists(),
+        ).count()
+        dangling_round = db.session.query(LotteryRound).filter(
+            LotteryRound.operator_id.isnot(None),
+            ~db.session.query(User.id).filter(User.id == LotteryRound.operator_id).exists(),
+        ).count()
+        assert dangling_checkin == 0
+        assert dangling_round == 0
+
+
+def test_delete_account_keeps_other_activities_and_nulls_round_operator(client, app):
+    """删除账号不得误删他人活动；该账号在他人活动上留下的抽签轮次保留但操作人置空。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    login(client)
+    other_id = _teacher2_id(app)
+    with app.app_context():
+        rnd = LotteryRound(activity_id=aid, draw_count=1, winners_json="[]",
+                            excluded=True, operator_id=other_id)
+        db.session.add(rnd)
+        db.session.commit()
+        rnd_id = rnd.id
+
+    client.post("/admin/users", data={"action": "delete", "uid": str(other_id)})
+
+    with app.app_context():
+        db.session.expire_all()
+        # 他人活动仍在
+        assert db.session.get(Activity, aid) is not None
+        # 轮次保留，操作人置空
+        row = db.session.get(LotteryRound, rnd_id)
+        assert row is not None
+        assert row.operator_id is None
+        assert row.operator is None
+        # recent_rounds 遇 operator=None 也必须安全
+        act = db.session.get(Activity, aid)
+        rounds = app_lottery.recent_rounds(act, 5)
+        assert rounds
+        assert all(r["operator"] == "" for r in rounds)
+
+
+def test_users_page_has_delete_button_with_warning(client, app):
+    """账号管理页：他人行有删除按钮与二次确认文案，当前账号行保留改姓名表单。"""
+    login(client)
+    body = client.get("/admin/users").get_data(as_text=True)
+    assert 'value="delete"' in body
+    assert "该账号名下的活动、名册与签到记录会一并删除，且无法恢复。" in body
+    assert 'value="rename"' in body
+    # 界面文案不得出现「超级管理员」，角色称谓统一为「创建者」
+    assert "超级管理员" not in body
+    assert "创建者" in body

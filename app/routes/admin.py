@@ -10,7 +10,8 @@ from ..access import (activity_stats, dict_campuses, dict_stages, dict_subjects,
                       get_managed_activity, live_payload, name_map)
 from ..extensions import db
 from ..lottery import candidate_pool, draw, recent_rounds, save_round, serialize_round
-from ..models import ALL_CAMPUS, Activity, CheckIn, Roster, Setting, User
+from ..models import (ALL_CAMPUS, Activity, CheckIn, LotteryRound, Roster, Setting,
+                     User)
 from ..roster import import_roster
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -331,6 +332,40 @@ def users():
                 flash("姓名已更新", "success")
             else:
                 flash("请填写姓名", "error")
+        elif action == "delete":
+            uid = (request.form.get("uid") or "").strip()
+            u = db.session.get(User, int(uid)) if uid.isdigit() else None
+            if u is None:
+                flash("账号不存在", "error")
+            elif u.id == current_user.id:
+                flash("不能删除当前登录的账号", "error")
+            else:
+                name = u.display_name
+                # 只取 id，避免把活动实体挂进会话（避免 ORM 级联空外键）
+                act_ids = [row[0] for row in
+                           db.session.query(Activity.id).filter(Activity.owner_id == u.id).all()]
+                # 先解除该账号在别处留下的「操作人」引用：
+                # CheckIn.operator_id 无 ondelete；LotteryRound.operator_id 虽有
+                # ON DELETE SET NULL，但本地 SQLite 不执行外键，且 ORM 也不会自动置空，
+                # 因此两处都必须在代码里显式置空，生产 Postgres 同样安全。
+                CheckIn.query.filter(CheckIn.operator_id == u.id).update(
+                    {CheckIn.operator_id: None}, synchronize_session=False)
+                LotteryRound.query.filter(LotteryRound.operator_id == u.id).update(
+                    {LotteryRound.operator_id: None}, synchronize_session=False)
+                # 名下的活动按依赖顺序删除：轮次 → 签到 → 名册 → 活动
+                # （Activity.owner_id 是 NOT NULL 外键，必须先删活动再删用户）
+                if act_ids:
+                    LotteryRound.query.filter(
+                        LotteryRound.activity_id.in_(act_ids)).delete(synchronize_session=False)
+                    CheckIn.query.filter(
+                        CheckIn.activity_id.in_(act_ids)).delete(synchronize_session=False)
+                    Roster.query.filter(
+                        Roster.activity_id.in_(act_ids)).delete(synchronize_session=False)
+                    Activity.query.filter(
+                        Activity.id.in_(act_ids)).delete(synchronize_session=False)
+                db.session.delete(u)
+                db.session.commit()
+                flash("已删除账号「{}」及其 {} 个活动".format(name, len(act_ids)), "success")
     return render_template("admin/users.html", users=User.query.order_by(User.id).all())
 
 
