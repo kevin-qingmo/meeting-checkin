@@ -86,9 +86,9 @@ const ok = (c, m) => console.log((c ? '  PASS  ' : '! FAIL  ') + m);
   console.log('  body 背景:', colors.bg);
   console.log('  body 文字:', colors.text);
   const appCss = await (await fetch(BASE + '/static/css/app.css')).text();
-  ok(appCss.includes('#3B5645'), 'app.css 主色为海岸铁道绿 #3B5645');
+  ok(appCss.includes('#2C2A26') && appCss.includes('#D4B48C'), 'app.css 为日式黑金（墨黑 #2C2A26 + 沙金 #D4B48C）');
   const boardCss = await (await fetch(BASE + '/static/css/board.css')).text();
-  ok(boardCss.includes('#4E6B55') && boardCss.includes('#3B5645'), 'board.css 为深墨绿变体');
+  ok(boardCss.includes('#2C2A26') && boardCss.includes('#D4B48C'), 'board.css 为日式黑金变体');
 
   await browser.close();
 })().catch(e => { console.error('FAIL', e); process.exit(1); });

@@ -29,7 +29,11 @@ def make_site_code(activity_id, cycle, mode="in"):
 
 
 def verify(activity_id, token, code, cycle, mode="in", now=None):
-    """校验扫码 token + 现场码。接受当前与上一周期（40 秒容忍窗）。
+    """校验扫码 token + 现场码。
+
+    容忍窗：接受当前周期往前 grace 个周期（默认 2，即约 60 秒）。
+    跨境弱网时大屏刷新本身可能滞后一两个周期，若只容忍 1 个周期，
+    老师扫的是过期码会直接失败，因此容忍窗做成可配置（环境变量 CYCLE_GRACE）。
 
     返回 (是否通过, 失败原因)
     """
@@ -40,7 +44,12 @@ def verify(activity_id, token, code, cycle, mode="in", now=None):
     except (TypeError, ValueError):
         return False, "签到码无效，请重新扫码"
     cur = current_cycle(now)
-    if cycle not in (cur, cur - 1):
+    grace = current_app.config.get("CYCLE_GRACE", 2) if current_app else 2
+    try:
+        grace = max(0, int(grace))
+    except (TypeError, ValueError):
+        grace = 2
+    if cycle not in {cur - i for i in range(grace + 1)}:
         return False, "签到码已刷新，请使用大屏上最新的现场码"
     if not hmac.compare_digest(str(token), make_token(activity_id, cycle, mode)):
         return False, "签到码无效，请重新扫码"

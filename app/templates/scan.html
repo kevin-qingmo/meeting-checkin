@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{{ activity.title }} · {{ '签离' if mode == 'out' else '签到' }}</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+  <style>{{ inline_css('css/app.css') }}</style>
   <style>
     body{background:radial-gradient(900px 600px at 50% -10%, #F5F1EC 0%, #EBE5DC 60%, #E2DACF 100%)}
     .scan-wrap{max-width:460px;margin:0 auto;padding:26px 18px 48px}

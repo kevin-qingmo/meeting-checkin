@@ -1,11 +1,24 @@
 """应用工厂。"""
+import gzip
 import os
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 from flask_login import current_user
 
-from .config import Config
+from .assets import inline_css, inline_js, logo_data_uri
+from .config import Config, engine_options
 from .extensions import db, login_manager
+
+# 弱网优化：小于该体积的响应不压缩（gzip 头本身有开销）
+GZIP_MIN_SIZE = 1024
+GZIP_TYPES = (
+    "text/html",
+    "text/css",
+    "text/javascript",
+    "application/javascript",
+    "application/json",
+    "image/svg+xml",
+)
 
 
 def create_app(test_config=None):
@@ -27,6 +40,15 @@ def create_app(test_config=None):
         )
 
     os.makedirs(app.instance_path, exist_ok=True)
+
+    # 弱网优化：静态资源（CSS/JS/图片）走浏览器长缓存，二次打开不再重新握手
+    # 注意：Flask 默认配置里这个键已存在且值为 None，必须直接赋值，setdefault 不生效
+    app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 60 * 60 * 24
+
+    # 弱网优化：数据库连接可能被中间链路静默断开，pool_pre_ping 让它在下次使用前
+    # 快速探活并重建，而不是卡到超时；同时定期回收老连接
+    if uri and not uri.startswith("sqlite"):
+        app.config["SQLALCHEMY_ENGINE_OPTIONS"] = engine_options(uri)
 
     db.init_app(app)
     login_manager.init_app(app)
@@ -53,7 +75,40 @@ def create_app(test_config=None):
 
     @app.context_processor
     def inject_globals():
-        return {"current_user": current_user, "app_name": "会议扫码签到系统"}
+        return {
+            "current_user": current_user,
+            "app_name": "会议扫码签到系统",
+            # 弱网优化：首屏 CSS / JS / 校徽内联进 HTML，减少并行握手次数
+            "inline_css": inline_css,
+            "inline_js": inline_js,
+            "logo_data_uri": logo_data_uri,
+        }
+
+    @app.after_request
+    def maybe_gzip(response):
+        """弱网优化：HTML / JSON / CSS / JS 走 gzip，显著减少传输字节数。"""
+        try:
+            mimetype = (response.mimetype or "").lower()
+            if (
+                mimetype in GZIP_TYPES
+                and "gzip" in (request.headers.get("Accept-Encoding") or "")
+                and response.status_code == 200
+                and not response.direct_passthrough
+            ):
+                data = response.get_data()
+                if len(data) >= GZIP_MIN_SIZE:
+                    body = gzip.compress(data, 6)
+                    if len(body) < len(data):
+                        response.set_data(body)
+                        response.headers["Content-Encoding"] = "gzip"
+                        response.headers["Content-Length"] = str(len(body))
+                        # 追加而不是覆盖：原 Vary 可能已含 Cookie，覆盖会破坏缓存语义
+                        vary = response.headers.get("Vary", "")
+                        if "accept-encoding" not in vary.lower():
+                            response.headers["Vary"] = (vary + ", Accept-Encoding").strip(", ")
+        except Exception:  # 压缩失败绝不能影响正常响应
+            pass
+        return response
 
     @app.template_filter("dt")
     def format_dt(value, with_seconds=True):

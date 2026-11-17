@@ -403,7 +403,9 @@ def test_header_shows_school_name_and_logo(client):
     login(client)
     body = client.get("/admin/").get_data(as_text=True)
     assert "天津海河教育园区南开学校" in body
-    assert "img_school_logo.png" in body
+    # 弱网优化：校徽内联为 data URI，不再是外链图片请求
+    assert "data:image/png;base64," in body
+    assert "img_school_logo.png" not in body
 
 
 def test_login_page_shows_school_name(client):
