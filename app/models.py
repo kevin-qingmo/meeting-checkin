@@ -136,6 +136,30 @@ class CheckIn(db.Model):
     operator = db.relationship("User", foreign_keys=[operator_id])
 
 
+class LotteryRound(db.Model):
+    """一次随机抽签的结果留痕。"""
+
+    __tablename__ = "lottery_rounds"
+
+    id = db.Column(db.Integer, primary_key=True)
+    activity_id = db.Column(db.Integer, db.ForeignKey("activities.id"), nullable=False)
+    draw_count = db.Column(db.Integer, default=1)
+    winners_json = db.Column(db.Text, default="[]")
+    excluded = db.Column(db.Boolean, default=True)
+    operator_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    activity = db.relationship("Activity", backref="lottery_rounds")
+    operator = db.relationship("User", foreign_keys=[operator_id])
+
+    @property
+    def winners(self):
+        try:
+            return json.loads(self.winners_json or "[]")
+        except (ValueError, TypeError):
+            return []
+
+
 class Setting(db.Model):
     __tablename__ = "settings"
 
