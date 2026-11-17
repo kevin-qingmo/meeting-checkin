@@ -109,7 +109,7 @@ cd "D:\MiniMax工作站\签到系统"
 ## 验收方式
 
 ```powershell
-Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' -m pytest tests -q   # 25 passed
+Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' -m pytest tests -q   # 92 passed
 ```
 
 - **跨实例一致性**：`tools/cross_instance_check.py` —— 实例 A 出码 → 实例 B 校验落库 → A 读回计数=1 → 错码被拒。这是多进程部署正确性的关键证据。
@@ -121,7 +121,7 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
   1. `ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\railway_verify_ed25519 -N '""'`（`.ssh` 目录可能不存在，要先建）
   2. `railway ssh keys add --key <公钥路径> --name mcode-verify-temp`（注册到 Railway 账号）
   3. `railway connect Postgres --tunnel-only --port 15432` → 输出 `postgresql://postgres:<口令>@127.0.0.1:15432/railway`
-  4. 用该 URL 设 `DATABASE_URL` 跑 `tools/prod_temp_admin.py create/delete <用户名> <口令>`（直连 psycopg 建临时超管）
+  4. 用该 URL 设 `DATABASE_URL` 跑 `tools/prod_temp_admin.py create/delete <用户名> <口令>`（直连 psycopg 建临时创建者账号）
   5. 用临时账号跑 `tools/e2e_public.py`，验完 `delete` 掉临时账号
   6. 收尾：`railway ssh keys remove <指纹>` + 停 ssh 进程 + 删本地密钥
   - **坑**：隧道日志文件（`> tunnel.log`）会被进程长期占用删不掉，且**里面有数据库口令** → 务必 gitignore，退出后让用户手动删，或直接轮换口令。
@@ -218,8 +218,9 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
 | `app/static/css/` | `app.css`（后台）、`board.css`（大屏） |
 | `app/static/js/board.js` | 大屏倒计时条 `paintBar`（蓝色贴左、右边缘向左退缩） |
 | `app/codes.py` | HMAC 派生签到码与现场码 |
-| `app/models.py` | User / Activity / Roster / CheckIn / Setting |
-| `seed.py` | 建超管 admin + 预置三校区/三学段/15 学科字典 |
+| `app/lottery.py` | 抽签领域逻辑：候选池 / 排除已中奖 / 随机抽取 / 轮次留痕 |
+| `app/models.py` | User / Activity / Roster / CheckIn / LotteryRound / Setting |
+| `seed.py` | 建创建者账号 admin + 预置三校区/三学段/15 学科字典 |
 | `tools/` | demo_data / ui_check / ui_check_bar / cross_instance_check / e2e_public |
 | `deploy/` | 部署指南.md + 一键部署.ps1 |
 | `docs/superpowers/` | 设计文档与实现计划（gitignore 了） |
