@@ -824,3 +824,87 @@ def test_delete_account_integrity_error_shows_friendly_message(client, app, monk
     assert "已删除账号" not in body
     with app.app_context():
         assert db.session.get(User, other_id) is not None
+
+
+# ---------------------------------------------------------------- 导出抽奖记录
+
+
+LOTTERY_SHEET_HEADERS = ["轮次", "抽取时间", "抽取人数", "中奖名单", "操作人", "排除已中奖者"]
+
+
+def _export_workbook(client, app):
+    import io
+    from openpyxl import load_workbook
+    aid = app.config["TEST_ACTIVITY_ID"]
+    r = client.get("/admin/activity/%d/export" % aid)
+    assert r.status_code == 200
+    return load_workbook(io.BytesIO(r.data))
+
+
+def test_export_contains_lottery_sheet(client, app):
+    """导出 workbook 的第 4 张表为「抽奖记录」，含表头与一行抽奖数据。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    login(client)
+    client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    wb = _export_workbook(client, app)
+    assert wb.sheetnames == ["签到明细", "应到实到统计", "缺席名单", "抽奖记录"]
+    ws = wb["抽奖记录"]
+    assert [c.value for c in ws[1]] == LOTTERY_SHEET_HEADERS
+    assert ws.max_row == 2
+
+
+def test_export_lottery_sheet_has_header_only_when_no_draw(client, app):
+    """没抽过奖的活动也必须有「抽奖记录」表，且只有表头一行。"""
+    login(client)
+    wb = _export_workbook(client, app)
+    assert "抽奖记录" in wb.sheetnames
+    ws = wb["抽奖记录"]
+    assert [c.value for c in ws[1]] == LOTTERY_SHEET_HEADERS
+    assert ws.max_row == 1
+
+
+def test_export_lottery_sheet_row_content(client, app):
+    """「抽奖记录」行的字段内容正确：轮次、时间、人数、名单、操作人、排除标记。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    _signed_in(app, aid, "李四", "13800000002")
+    login(client)
+    client.post("/admin/activity/%d/lottery" % aid, data={"count": "2"})
+    wb = _export_workbook(client, app)
+    ws = wb["抽奖记录"]
+    assert ws.max_row == 2
+    values = [c.value for c in ws[2]]
+    assert values[0] == 1                       # 轮次
+    assert values[1] and ":" in values[1]       # 抽取时间（与其它表同格式）
+    assert values[2] == 2                       # 抽取人数 = 实际抽中人数
+    assert set(values[3].split("、")) == {"张三", "李四"}  # 中奖名单
+    assert values[4] == "教务主任"              # 操作人 display_name
+    assert values[5] == "是"                    # 排除已中奖者
+
+
+def test_export_lottery_sheet_round_index_and_missing_operator(client, app):
+    """多轮时轮次序号递增；操作人账号被删后写空字符串而非「None」。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    with app.app_context():
+        db.session.add(LotteryRound(
+            activity_id=aid, draw_count=1,
+            winners_json=json.dumps([{"name": "李四", "campus": "敬慧路校区",
+                                       "phone": "13800000002"}], ensure_ascii=False),
+            excluded=False, operator_id=None))
+        db.session.commit()
+    login(client)
+    client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    wb = _export_workbook(client, app)
+    ws = wb["抽奖记录"]
+    assert ws.max_row == 3
+    first = [c.value for c in ws[2]]
+    second = [c.value for c in ws[3]]
+    assert first[0] == 1 and second[0] == 2
+    # operator 被删 → 空单元格（Excel 中写入 "" 读回为空值），绝不是字符串 "None"
+    assert first[4] in ("", None)
+    assert first[4] != "None"
+    assert first[5] == "否"          # excluded=False
+    assert second[4] == "教务主任"
+    assert second[5] == "是"
