@@ -10,7 +10,8 @@
   <header class="board-head">
     <h1>{{ activity.title }}</h1>
     <div class="board-sub">
-      {{ (activity.subjects | join('、')) or '不限学科' }} ·
+      {% if activity.is_school_wide %}全校活动 ·
+      {% else %}{{ (activity.subjects | join('、')) or '不限学科' }} ·{% endif %}
       {{ activity.start_at.strftime('%Y-%m-%d') }} ·
       {{ activity.location or '地点待定' }}
     </div>
