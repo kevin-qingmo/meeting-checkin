@@ -390,3 +390,56 @@ def test_lottery_endpoint_records_actual_draw_count(client, app):
     with app.app_context():
         row = LotteryRound.query.filter_by(activity_id=aid).one()
         assert row.draw_count == 2
+
+
+def test_lottery_endpoint_exclude_winners_uses_last_value(client, app):
+    """同名多值（hidden + checkbox）时以最后一个取值为准，用户勾选意图不被静默反转。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    _signed_in(app, aid, "李四", "13800000002")
+    _signed_in(app, aid, "王五", "13800000003")
+    login(client)
+
+    # hidden(off) 在前、checkbox(on) 在后且已勾选 → 浏览器提交 "off&exclude_winners=on"
+    # 用户明明勾上了「排除已中奖」，必须按排除执行
+    r = client.post("/admin/activity/%d/lottery" % aid,
+                    data={"count": "1", "exclude_winners": ["off", "on"]})
+    assert r.status_code == 200
+    assert r.get_json()["round"]["excluded"] is True
+
+    # checkbox(on) 在前、hidden(off) 在后 → 以最后出现的取值为准
+    r = client.post("/admin/activity/%d/lottery" % aid,
+                    data={"count": "1", "exclude_winners": ["on", "off"]})
+    assert r.status_code == 200
+    assert r.get_json()["round"]["excluded"] is False
+
+    # 字段缺失 → 缺省即排除
+    r = client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    assert r.status_code == 200
+    assert r.get_json()["round"]["excluded"] is True
+
+    # 显式 off → 允许重复中奖
+    r = client.post("/admin/activity/%d/lottery" % aid,
+                    data={"count": "1", "exclude_winners": "off"})
+    assert r.status_code == 200
+    assert r.get_json()["round"]["excluded"] is False
+
+
+def test_lottery_read_endpoint_survives_malformed_winners(client, app):
+    """脏数据（winners_json 元素非 dict）不得让公开接口 500。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    with app.app_context():
+        db.session.add(LotteryRound(
+            activity_id=aid, draw_count=1,
+            winners_json='["oops"]', excluded=True, operator_id=None,
+        ))
+        db.session.commit()
+    # 未登录的公开接口也必须扛得住脏数据
+    r = client.get("/api/activity/%d/lottery" % aid)
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["ok"] is True
+    for rnd in d["rounds"]:
+        for w in rnd["winners"]:
+            assert isinstance(w, dict)
+            assert set(w.keys()) == {"name", "campus"}

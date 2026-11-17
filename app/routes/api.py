@@ -80,13 +80,14 @@ def _parse_dt(raw):
 
 
 def _public_round(round_data):
-    """公开视图：抹掉中奖人手机号，只保留姓名与校区。"""
+    """公开视图：抹掉中奖人手机号，只保留姓名与校区；脏数据元素直接跳过。"""
     if not round_data:
         return round_data
     public = dict(round_data)
     public["winners"] = [
         {"name": w.get("name", ""), "campus": w.get("campus", "")}
         for w in (round_data.get("winners") or [])
+        if isinstance(w, dict)
     ]
     return public
 

@@ -149,19 +149,23 @@ def activity_delete(activity_id):
     return redirect(url_for("admin.activities"))
 
 
-def _exclude_winners_flag(raw):
+def _exclude_winners_flag(values):
     """判定「排除已中奖」开关：默认开启，仅显式传关闭值时才关闭。
 
+    values：表单里 exclude_winners 的全部取值（可能多个，如 hidden + checkbox 同名）。
+    同名多值时以**最后一个**为准 —— 浏览器按 DOM 顺序提交，checkbox 在后则其值在后，
+    这样 hidden(off) + checkbox(on) 勾选时按「排除」执行，勾选意图不会被静默反转。
+
     判定表：
-      字段缺失（None）      → True（缺省排除）
-      "" / 纯空白           → True（视为缺省）
-      on / 1 / true / yes   → True
-      0 / off / false / no  → False（显式关闭）
-      其它任意值            → True（默认排除）
+      字段缺失（空列表 / None） → True（缺省排除）
+      "" / 纯空白              → True（视为缺省）
+      on / 1 / true / yes      → True
+      0 / off / false / no     → False（显式关闭）
+      其它任意值               → True（默认排除，fail-safe）
     """
-    if raw is None:
+    if not values:
         return True
-    value = str(raw).strip().lower()
+    value = str(values[-1]).strip().lower()
     if not value:
         return True
     return value not in ("0", "off", "false", "no")
@@ -177,7 +181,7 @@ def activity_lottery(activity_id):
     except (TypeError, ValueError):
         count = 1
     count = max(1, count)
-    exclude = _exclude_winners_flag(request.form.get("exclude_winners"))
+    exclude = _exclude_winners_flag(request.form.getlist("exclude_winners"))
     if not candidate_pool(act):
         return jsonify({"ok": False, "message": "暂无可抽取人员，请先完成签到"}), 400
     winners, available = draw(act, count, exclude)
