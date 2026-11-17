@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from ..access import (activity_stats, dict_campuses, dict_stages, dict_subjects,
                       get_managed_activity, live_payload, name_map)
 from ..extensions import db
-from ..lottery import candidate_pool, draw, recent_rounds, save_round, serialize_round
+from ..lottery import all_rounds, candidate_pool, draw, save_round, serialize_round
 from ..models import (ALL_CAMPUS, Activity, CheckIn, LotteryRound, Roster, Setting,
                      User)
 from ..roster import import_roster
@@ -199,11 +199,16 @@ def _exclude_winners_flag(values):
     return value not in ("0", "off", "false", "no")
 
 
-@bp.route("/activity/<int:activity_id>/lottery", methods=["POST"])
+@bp.route("/activity/<int:activity_id>/lottery", methods=["GET", "POST"])
 @login_required
 def activity_lottery(activity_id):
-    """从已签到人员中随机抽签并留痕。"""
+    """从已签到人员中随机抽签并留痕；GET 返回该活动的全部抽签记录。"""
     act = get_managed_activity(activity_id)
+    if request.method == "GET":
+        # 登录态私有接口：后台历史表格用，能拿到全部轮次与操作人
+        rounds = all_rounds(act)
+        return jsonify({"ok": True, "rounds": rounds,
+                        "latest": rounds[0] if rounds else None})
     try:
         count = int(request.form.get("count") or 1)
     except (TypeError, ValueError):
@@ -214,6 +219,12 @@ def activity_lottery(activity_id):
         return jsonify({"ok": False, "message": "暂无可抽取人员，请先完成签到"}), 400
     winners, available = draw(act, count, exclude)
     if not winners:
+        if available == 0:
+            # 候选池非空但全部已中奖：与「暂无可抽取人员」区分开
+            return jsonify({
+                "ok": False,
+                "message": "候选人员都已中过奖，可开启「允许重复中奖」",
+            }), 400
         return jsonify({
             "ok": False,
             "message": "可抽取人员不足（可抽 {} 人）".format(available),
@@ -227,7 +238,7 @@ def activity_lottery(activity_id):
         "ok": True,
         "message": "已抽出 {} 人".format(len(winners)),
         "round": serialize_round(row, current_user.display_name),
-        "rounds": recent_rounds(act, 5),
+        "rounds": all_rounds(act),
     })
 
 

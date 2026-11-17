@@ -197,7 +197,7 @@ async function loadLotteryHistory(){
   const body = document.getElementById('lottery-history-body');
   const emptyRow = '<tr><td colspan="6" class="muted">暂无抽奖记录</td></tr>';
   try{
-    const r = await fetch(`/api/activity/${ACTIVITY_ID}/lottery?_=${Date.now()}`);
+    const r = await fetch(`/admin/activity/${ACTIVITY_ID}/lottery?_=${Date.now()}`);
     const d = await readJsonSafe(r);
     if(!r.ok || !d || d.ok !== true){ body.innerHTML = emptyRow; return; }
     const rounds = d.rounds || [];
@@ -205,7 +205,7 @@ async function loadLotteryHistory(){
       const id = (x && x.id) || 0;
       const names = ((x && x.winners) || []).map(w => (w && w.name) || '').filter(Boolean).join('、');
       return `<tr>
-        <td title="${esc('记录 #' + id)}">第 ${esc(String(x.id))} 轮</td>
+        <td title="${esc('记录 #' + id)}">第 ${esc(String(x.seq))} 轮</td>
         <td class="small">${esc((x && x.created_at) || '')}</td>
         <td>${esc(String((x && x.draw_count) || 0))}</td>
         <td>${esc(names) || '—'}</td>

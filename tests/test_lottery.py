@@ -521,12 +521,13 @@ def test_dashboard_has_lottery_card(client, app):
 
 
 def test_dashboard_lottery_history_uses_record_id_and_validates_count(client, app):
-    """轮次列用记录号表示先后顺序（不再用窗口内相对编号），且抽取人数有前端校验。"""
+    """轮次列用「活动内序号」表示先后顺序，且抽取人数有前端校验。"""
     aid = app.config["TEST_ACTIVITY_ID"]
     login(client)
     body = client.get("/admin/activity/%d/dashboard" % aid).get_data(as_text=True)
-    # 轮次列直接用该轮记录号（且经 esc 转义），随窗口推移不漂移
-    assert "第 ${esc(String(x.id))} 轮" in body
+    # 轮次列用活动内序号 seq（不是跨活动不连续的全局 id）
+    assert "第 ${esc(String(x.seq))} 轮" in body
+    assert "第 ${esc(String(x.id))} 轮" not in body
     assert "maxId" not in body
     # 非法人数在前端拦截并给出中文提示，不发请求
     assert "抽取人数需为大于 0 的整数" in body
@@ -984,7 +985,7 @@ def test_export_lottery_sheet_row_content(client, app):
     ws = wb["抽奖记录"]
     assert ws.max_row == 2
     values = [c.value for c in ws[2]]
-    assert values[0] == 1                       # 轮次
+    assert values[0] == 1                       # 轮次 = 活动内序号（不是全局 id）
     assert values[1] and ":" in values[1]       # 抽取时间（与其它表同格式）
     assert values[2] == 2                       # 抽取人数 = 实际抽中人数
     assert set(values[3].split("、")) == {"张三", "李四"}  # 中奖名单
@@ -1116,3 +1117,138 @@ def test_users_page_delete_message_mentions_lottery_records(client, app):
     msgs = _confirm_messages(body)
     assert msgs
     assert all("抽签记录" in m for m in msgs)
+
+
+# ---------------------------------------------------------------- 轮次编号与后台历史
+
+
+def _export_lottery_sheet(client, app, aid):
+    """导出指定活动的「抽奖记录」表。"""
+    import io
+    from openpyxl import load_workbook
+    r = client.get("/admin/activity/%d/export" % aid)
+    assert r.status_code == 200
+    wb = load_workbook(io.BytesIO(r.data))
+    return wb["抽奖记录"]
+
+
+def test_round_seq_is_numbered_within_activity(client, app):
+    """轮次编号统一为「活动内序号」：两个活动各抽一轮，都应是第 1 轮。
+
+    新断言必须能区分「活动内序号」与「全局 id」：第二个活动的第一轮全局 id 更大，
+    但它的活动内序号仍然是 1，后台与 Excel 也都显示第 1 轮。
+    """
+    aid1 = app.config["TEST_ACTIVITY_ID"]
+    aid2 = _activity_with_title(app, "第二个活动")
+    _signed_in(app, aid1, "张三", "13800000001")
+    _signed_in(app, aid2, "王五", "13800000005")
+    login(client)
+    assert client.post("/admin/activity/%d/lottery" % aid1,
+                        data={"count": "1"}).status_code == 200
+    assert client.post("/admin/activity/%d/lottery" % aid2,
+                        data={"count": "1"}).status_code == 200
+
+    d1 = client.get("/admin/activity/%d/lottery" % aid1).get_json()
+    d2 = client.get("/admin/activity/%d/lottery" % aid2).get_json()
+    assert d1["rounds"][0]["seq"] == 1
+    assert d2["rounds"][0]["seq"] == 1
+    # 全局 id 确实不同（否则本用例无法区分两种口径）
+    assert d2["rounds"][0]["id"] != d1["rounds"][0]["id"]
+
+    # Excel 用同一口径：第二个活动的第一轮也是第 1 轮
+    ws1 = _export_lottery_sheet(client, app, aid1)
+    ws2 = _export_lottery_sheet(client, app, aid2)
+    assert [c.value for c in ws1[2]][0] == 1
+    assert [c.value for c in ws2[2]][0] == 1
+
+
+def test_round_seq_increases_within_activity(client, app):
+    """同一活动内多轮时，活动内序号 1..n 递增（全局 id 同样递增，但口径唯一）。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    _signed_in(app, aid, "李四", "13800000002")
+    login(client)
+    for _ in range(3):
+        r = client.post("/admin/activity/%d/lottery" % aid,
+                        data={"count": "1", "exclude_winners": "off"})
+        assert r.status_code == 200
+    d = client.get("/admin/activity/%d/lottery" % aid).get_json()
+    seqs = sorted(r["seq"] for r in d["rounds"])
+    assert seqs == [1, 2, 3]
+
+
+def test_admin_lottery_read_endpoint_returns_all_rounds(client, app):
+    """后台私有接口返回该活动的**全部**轮次（第 6 轮以后也必须看得到）。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    _signed_in(app, aid, "李四", "13800000002")
+    login(client)
+    for _ in range(6):
+        r = client.post("/admin/activity/%d/lottery" % aid,
+                        data={"count": "1", "exclude_winners": "off"})
+        assert r.status_code == 200
+    d = client.get("/admin/activity/%d/lottery" % aid).get_json()
+    assert d["ok"] is True
+    assert len(d["rounds"]) == 6
+    assert sorted(r["seq"] for r in d["rounds"]) == [1, 2, 3, 4, 5, 6]
+    # 私有接口保留操作人（管理员场景需要）
+    assert all(r["operator"] for r in d["rounds"])
+
+
+def test_admin_lottery_read_endpoint_requires_login(client, app):
+    aid = app.config["TEST_ACTIVITY_ID"]
+    r = client.get("/admin/activity/%d/lottery" % aid)
+    assert r.status_code in (302, 401, 403)
+
+
+def test_admin_lottery_read_endpoint_forbidden_for_other_admin(client, app):
+    """私有接口必须做活动归属校验：普通管理员看不了别人的活动。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    login(client, username="teacher2", password="teacher123456")
+    r = client.get("/admin/activity/%d/lottery" % aid)
+    assert r.status_code == 403
+
+
+def test_dashboard_history_uses_private_admin_endpoint(client, app):
+    """后台历史表格必须走登录态私有接口（否则第 6 轮以后永远看不到）。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    login(client)
+    body = client.get("/admin/activity/%d/dashboard" % aid).get_data(as_text=True)
+    assert "/admin/activity/${ACTIVITY_ID}/lottery" in body
+    assert "/api/activity/${ACTIVITY_ID}/lottery" not in body
+
+
+def test_public_lottery_endpoint_hides_operator(client, app):
+    """公开只读接口不得向匿名访问者暴露操作人真实姓名。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    login(client)
+    client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    client.get("/logout")
+    r = client.get("/api/activity/%d/lottery" % aid)
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "operator" not in body
+    assert "教务主任" not in body
+    d = r.get_json()
+    for rnd in d["rounds"]:
+        assert "operator" not in rnd
+
+
+def test_export_lottery_sheet_skips_empty_winner_names(client, app):
+    """中奖名单拼接前要过滤空名，不得出现「甲、、乙」。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    with app.app_context():
+        db.session.add(LotteryRound(
+            activity_id=aid, draw_count=3,
+            winners_json=json.dumps(
+                [{"name": "甲", "campus": "敬慧路校区", "phone": ""},
+                 {"name": "", "campus": "敬慧路校区", "phone": ""},
+                 {"name": "乙", "campus": "敬慧路校区", "phone": ""}],
+                ensure_ascii=False),
+            excluded=True, operator_id=None))
+        db.session.commit()
+    login(client)
+    ws = _export_lottery_sheet(client, app, aid)
+    names = [c.value for c in ws[2]][3]
+    assert names == "甲、乙"

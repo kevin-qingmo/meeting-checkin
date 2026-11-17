@@ -80,10 +80,15 @@ def _parse_dt(raw):
 
 
 def _public_round(round_data):
-    """公开视图：抹掉中奖人手机号，只保留姓名与校区；脏数据元素直接跳过。"""
+    """公开视图：抹掉中奖人手机号与操作人，只保留姓名与校区；脏数据元素直接跳过。
+
+    操作人姓名属于内部信息，公开接口（大屏投屏场景）不需要，直接不带出；
+    后台历史所需的操作人走登录态私有接口 GET /admin/activity/<id>/lottery。
+    """
     if not round_data:
         return round_data
     public = dict(round_data)
+    public.pop("operator", None)
     public["winners"] = [
         {"name": w.get("name", ""), "campus": w.get("campus", "")}
         for w in winner_items(round_data.get("winners"))
