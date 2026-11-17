@@ -1,14 +1,15 @@
 import json
 from datetime import datetime
 
-from flask import (Blueprint, abort, flash, redirect, render_template, request,
-                   send_file, url_for)
+from flask import (Blueprint, abort, flash, jsonify, redirect, render_template,
+                   request, send_file, url_for)
 from flask_login import current_user, login_required
 from openpyxl import Workbook
 
 from ..access import (activity_stats, dict_campuses, dict_stages, dict_subjects,
                       get_managed_activity, live_payload, name_map)
 from ..extensions import db
+from ..lottery import candidate_pool, draw, recent_rounds, save_round, serialize_round
 from ..models import ALL_CAMPUS, Activity, CheckIn, Roster, Setting, User
 from ..roster import import_roster
 
@@ -146,6 +147,37 @@ def activity_delete(activity_id):
     db.session.commit()
     flash("已删除活动「{}」".format(title), "success")
     return redirect(url_for("admin.activities"))
+
+
+@bp.route("/activity/<int:activity_id>/lottery", methods=["POST"])
+@login_required
+def activity_lottery(activity_id):
+    """从已签到人员中随机抽签并留痕。"""
+    act = get_managed_activity(activity_id)
+    try:
+        count = int(request.form.get("count") or 1)
+    except (TypeError, ValueError):
+        count = 1
+    count = max(1, count)
+    exclude = request.form.get("exclude_winners") in ("on", "1", "true", "yes")
+    if not candidate_pool(act):
+        return jsonify({"ok": False, "message": "暂无可抽取人员，请先完成签到"}), 400
+    winners, available = draw(act, count, exclude)
+    if not winners:
+        return jsonify({
+            "ok": False,
+            "message": "可抽取人员不足（可抽 {} 人）".format(available),
+        }), 400
+    row = save_round(act, winners, count, exclude, current_user.id)
+    if row is None:
+        # 兜底：save_round 在中奖人为空时不落库
+        return jsonify({"ok": False, "message": "暂无可抽取人员，请先完成签到"}), 400
+    return jsonify({
+        "ok": True,
+        "message": "已抽出 {} 人".format(len(winners)),
+        "round": serialize_round(row, current_user.display_name),
+        "rounds": recent_rounds(act, 5),
+    })
 
 
 @bp.route("/activity/<int:activity_id>/roster", methods=["POST"])

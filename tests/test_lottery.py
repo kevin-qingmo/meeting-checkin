@@ -255,3 +255,68 @@ def test_draw_count_below_one_or_invalid_draws_one(app):
         winners_bad, available_bad = app_lottery.draw(act, "abc")
         assert available_bad == 2
         assert len(winners_bad) == 1
+
+
+def test_lottery_endpoint_draws_and_records(client, app):
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    _signed_in(app, aid, "李四", "13800000002")
+    login(client)
+    r = client.post("/admin/activity/%d/lottery" % aid,
+                    data={"count": "1", "exclude_winners": "on"})
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["ok"] is True
+    assert len(d["round"]["winners"]) == 1
+    assert d["round"]["excluded"] is True
+    with app.app_context():
+        assert LotteryRound.query.filter_by(activity_id=aid).count() == 1
+
+
+def test_lottery_endpoint_requires_login(client, app):
+    aid = app.config["TEST_ACTIVITY_ID"]
+    r = client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    assert r.status_code in (302, 401, 403)
+
+
+def test_lottery_endpoint_without_candidates_fails(client, app):
+    aid = app.config["TEST_ACTIVITY_ID"]
+    login(client)
+    with app.app_context():
+        before = LotteryRound.query.filter_by(activity_id=aid).count()
+    r = client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    assert r.status_code == 400
+    assert r.get_json()["ok"] is False
+    # 候选池为空时不得落任何轮次记录
+    with app.app_context():
+        assert LotteryRound.query.filter_by(activity_id=aid).count() == before
+
+
+def test_lottery_read_endpoint_is_public(client, app):
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    login(client)
+    client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    client.get("/logout")
+    r = client.get("/api/activity/%d/lottery" % aid)
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["ok"] is True
+    assert d["latest"]["winners"][0]["name"] == "张三"
+
+
+def test_lottery_endpoint_forbidden_for_other_admin(client, app):
+    """普通管理员对他人（超管）名下的活动抽签应 403，且不落轮次记录。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    login(client, username="teacher2", password="teacher123456")
+    r = client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    assert r.status_code == 403
+    with app.app_context():
+        assert LotteryRound.query.filter_by(activity_id=aid).count() == 0
+
+
+def test_lottery_read_endpoint_404_for_missing_activity(client):
+    r = client.get("/api/activity/999999/lottery")
+    assert r.status_code == 404
+    assert r.get_json()["ok"] is False

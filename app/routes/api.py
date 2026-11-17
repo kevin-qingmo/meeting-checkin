@@ -5,7 +5,8 @@ from flask_login import current_user, login_required
 
 from ..access import get_managed_activity, live_payload
 from ..extensions import db
-from ..models import CheckIn
+from ..lottery import recent_rounds
+from ..models import Activity, CheckIn
 
 bp = Blueprint("api", __name__)
 
@@ -76,3 +77,13 @@ def _parse_dt(raw):
         except ValueError:
             continue
     return None
+
+
+@bp.route("/api/activity/<int:activity_id>/lottery")
+def activity_lottery(activity_id):
+    """抽签记录（公开只读，供大屏投屏使用）。"""
+    activity = db.session.get(Activity, activity_id)
+    if activity is None:
+        return jsonify({"ok": False, "message": "活动不存在"}), 404
+    rounds = recent_rounds(activity, 5)
+    return jsonify({"ok": True, "rounds": rounds, "latest": rounds[0] if rounds else None})
