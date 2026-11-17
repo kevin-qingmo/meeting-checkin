@@ -162,6 +162,8 @@ Set-Location 'D:\MiniMax工作站\签到系统'; & '.\.venv\Scripts\python.exe' 
 - 大屏（`board.css`）：**海鸥蓝的深色变体**，为会场投影对比度。
   底 `#2E6183`→`#265171`→`#1B4359` 径向渐变；二维码卡纯白；
   **已签到=蓝 `#7CC0E8`、已签离=绿 `#8FC7AE` 的语义保持不变**。
+  统计卡与动态列表徽章都要遵守：`.board-page .feed-row .tag` 蓝（已签到）、
+  `.board-page .feed-row .tag.g` 绿（已签离）——`board.js` 里已签到**不加** `g` 类。
 - 手机扫码页（`scan.html` 内联样式）也是浅色海鸥蓝。
 
 **改配色时的坑**：
