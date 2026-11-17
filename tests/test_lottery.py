@@ -510,3 +510,21 @@ def test_dashboard_has_lottery_card(client, app):
     assert 'id="lottery-overlay"' in body
     assert 'id="lottery-winners"' in body
     assert 'id="lottery-close"' in body
+    # 「排除已中奖」默认勾选
+    assert 'id="lottery-exclude" checked' in body
+    # 提交时必须显式传 'on' / 'off' 单值（不能只传 on）
+    assert "? 'on' : 'off'" in body
+
+
+def test_dashboard_lottery_history_uses_record_id_and_validates_count(client, app):
+    """轮次列用记录号表示先后顺序（不再用窗口内相对编号），且抽取人数有前端校验。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    login(client)
+    body = client.get("/admin/activity/%d/dashboard" % aid).get_data(as_text=True)
+    # 轮次列直接用该轮记录号（且经 esc 转义），随窗口推移不漂移
+    assert "第 ${esc(String(x.id))} 轮" in body
+    assert "maxId" not in body
+    # 非法人数在前端拦截并给出中文提示，不发请求
+    assert "抽取人数需为大于 0 的整数" in body
+    # 弹层支持 ESC 键关闭
+    assert "Escape" in body

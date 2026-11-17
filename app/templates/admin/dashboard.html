@@ -201,14 +201,13 @@ async function loadLotteryHistory(){
     const d = await readJsonSafe(r);
     if(!r.ok || !d || d.ok !== true){ body.innerHTML = emptyRow; return; }
     const rounds = d.rounds || [];
-    const maxId = rounds.reduce((m, x) => Math.max(m, (x && x.id) || 0), 0);
     body.innerHTML = rounds.map(x => {
       const id = (x && x.id) || 0;
       const names = ((x && x.winners) || []).map(w => (w && w.name) || '').filter(Boolean).join('、');
       return `<tr>
-        <td title="记录 #${id}">第 ${maxId - id + 1} 轮</td>
+        <td title="${esc('记录 #' + id)}">第 ${esc(String(x.id))} 轮</td>
         <td class="small">${esc((x && x.created_at) || '')}</td>
-        <td>${(x && x.draw_count) || 0}</td>
+        <td>${esc(String((x && x.draw_count) || 0))}</td>
         <td>${esc(names) || '—'}</td>
         <td>${esc((x && x.operator) || '')}</td>
         <td>${(x && x.excluded) ? '是' : '否'}</td>
@@ -221,19 +220,27 @@ async function loadLotteryHistory(){
 document.getElementById('lottery-btn').addEventListener('click', async () => {
   const btn = document.getElementById('lottery-btn');
   const msg = document.getElementById('lottery-msg');
+  // 前端先校验人数：非正整数不发请求（否则服务端会静默按 1 人处理）
+  const raw = (document.getElementById('lottery-count').value || '').trim();
+  const count = Number(raw);
+  if(!raw || !Number.isInteger(count) || count < 1){
+    msg.textContent = '抽取人数需为大于 0 的整数';
+    return;
+  }
   btn.disabled = true;
   msg.textContent = '抽取中…';
   try{
     const fd = new FormData();
-    fd.append('count', document.getElementById('lottery-count').value || '1');
+    fd.append('count', String(count));
     // 必须显式传单值：勾选传 on，未勾选传 off（服务端以最后一个取值为准）
     fd.append('exclude_winners', document.getElementById('lottery-exclude').checked ? 'on' : 'off');
     const r = await fetch(`/admin/activity/${ACTIVITY_ID}/lottery`, {method:'POST', body: fd});
     const d = await readJsonSafe(r);
     if(!r.ok || !d || d.ok !== true){
-      // 403/404 会返回 HTML 错误页，此处给出通用提示而不是抛解析异常
+      // 403/404 会返回 HTML 错误页，未登录还会 302 跳登录页（此时 status 是 200），
+      // 这里只给中文通用提示，不带 HTTP 码，避免误导
       msg.textContent = (d && d.message) ? d.message
-        : `抽取失败（HTTP ${r.status}），请确认登录状态与活动归属。`;
+        : '抽取失败，请确认登录状态或稍后重试。';
       return;
     }
     msg.textContent = d.message || '抽取成功';
@@ -244,13 +251,21 @@ document.getElementById('lottery-btn').addEventListener('click', async () => {
     document.getElementById('lottery-overlay').classList.add('show');
     loadLotteryHistory();
   }catch(e){
-    msg.textContent = '抽取失败：网络或脚本异常，请重试。';
+    msg.textContent = '抽取失败，请确认登录状态或稍后重试。';
   }finally{
     btn.disabled = false;
   }
 });
-document.getElementById('lottery-close').addEventListener('click', () => {
-  document.getElementById('lottery-overlay').classList.remove('show');
+const lotteryOverlay = document.getElementById('lottery-overlay');
+function closeLotteryOverlay(){ lotteryOverlay.classList.remove('show'); }
+document.getElementById('lottery-close').addEventListener('click', closeLotteryOverlay);
+// 点击遮罩空白处关闭（点击中奖名单本体不关闭）
+lotteryOverlay.addEventListener('click', (e) => {
+  if(e.target === lotteryOverlay) closeLotteryOverlay();
+});
+// ESC 键关闭
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape') closeLotteryOverlay();
 });
 loadLotteryHistory();
 </script>
