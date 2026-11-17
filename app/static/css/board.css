@@ -1,15 +1,15 @@
-/* 签到大屏 · 水彩 B「海岸铁道绿」深色变体
- * 背景用深墨绿系，保证会场投影时对比度足够；
- * 已签到=淡蓝、已签离=绿 的语义保持不变。
+/* 签到大屏 · 日式黑金（墨黑暖调 + 沙金）
+ * 会场投影对比度最高：深墨底 + 沙金强调 + 纯白二维码卡；
+ * 已签到=沙金、已签离=绿 的语义保持不变。
  */
-.board-page{background:radial-gradient(1200px 700px at 50% -10%, #4E6B55 0%, #3B5645 58%, #2A3D31 100%)}
+.board-page{background:radial-gradient(1200px 700px at 50% -10%, #4A4439 0%, #2C2A26 58%, #1F1E1B 100%)}
 .board-page .wrap{max-width:1360px;margin:0 auto;padding:34px 24px 40px}
 .board{min-height:100vh}
 .board-head{text-align:center;margin-bottom:22px}
-.board-head h1{margin:0 0 8px;font-size:34px;color:#fff;letter-spacing:1px}
-.board-sub{color:#CFE0D2;font-size:16px}
+.board-head h1{margin:0 0 8px;font-size:34px;color:#F5F1EC;letter-spacing:3px}
+.board-sub{color:#DED5C7;font-size:16px}
 .mode-badge{display:inline-block;margin-top:14px;padding:9px 30px;border-radius:999px;font-size:17px;font-weight:700;
-  background:rgba(94,140,110,.22);color:#9FCBB0;border:1px solid rgba(94,140,110,.48)}
+  background:rgba(107,142,127,.2);color:#A8C4B4;border:1px solid rgba(107,142,127,.45)}
 .mode-badge.out{background:rgba(186,154,109,.2);color:#E0C79C;border-color:rgba(186,154,109,.48)}
 
 .board-warn{background:rgba(186,154,109,.18);border:1px solid rgba(186,154,109,.45);color:#EBD5B2;
@@ -18,47 +18,47 @@
 .board-main{display:grid;grid-template-columns:minmax(380px,1fr) minmax(380px,1.05fr);gap:28px;align-items:start}
 @media (max-width:900px){.board-main{grid-template-columns:1fr}}
 
-.qr-card{background:#fff;border-radius:20px;padding:26px 26px 22px;color:#3B5645;text-align:center;
-  box-shadow:0 22px 50px rgba(12,26,18,.45)}
-.qr-frame{border:2px solid #ADCEDF;border-radius:16px;padding:14px;display:inline-block;background:#fff}
+.qr-card{background:#fff;border-radius:20px;padding:26px 26px 22px;color:#6B5340;text-align:center;
+  box-shadow:0 22px 50px rgba(0,0,0,.5)}
+.qr-frame{border:2px solid #D4B48C;border-radius:16px;padding:14px;display:inline-block;background:#fff}
 .qr-frame img{display:block;width:300px;height:300px;image-rendering:pixelated}
-.qr-tip{margin-top:16px;font-size:24px;font-weight:800;color:#3B5645}
-.qr-hint{margin-top:4px;font-size:14px;color:#8A9484}
-.site-code-label{margin-top:20px;font-size:15px;color:#4E6B55}
-.site-code{font-size:46px;font-weight:800;letter-spacing:10px;color:#3B5645;font-variant-numeric:tabular-nums}
-/* 倒计时条：贴左端，右边缘随剩余时间从右向左退缩 */
-.bar{height:9px;border-radius:99px;background:#EFEFDF;overflow:hidden;margin:12px 6px 8px;
+.qr-tip{margin-top:16px;font-size:24px;font-weight:800;color:#6B5340;letter-spacing:2px}
+.qr-hint{margin-top:4px;font-size:14px;color:#8A7C6E}
+.site-code-label{margin-top:20px;font-size:15px;color:#6B5D4F}
+.site-code{font-size:46px;font-weight:800;letter-spacing:10px;color:#8A6B52;font-variant-numeric:tabular-nums}
+/* 倒计时条：沙金渐变，贴左端，右边缘随剩余时间从右向左退缩 */
+.bar{height:9px;border-radius:99px;background:#E2DACF;overflow:hidden;margin:12px 6px 8px;
   display:flex;justify-content:flex-start}
-.bar-fill{height:100%;width:100%;background:linear-gradient(90deg,#3B5645,#6E9B7C);
+.bar-fill{height:100%;width:100%;background:linear-gradient(90deg,#8A6B52,#D4B48C);
   border-radius:99px;transition:width .25s linear}
-.refresh-tip{font-size:13px;color:#8A9484}
+.refresh-tip{font-size:13px;color:#8A7C6E}
 
 .board-side{display:flex;flex-direction:column;gap:18px}
 .stat-row{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.stat-card{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);border-radius:18px;
+.stat-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:18px;
   padding:26px;text-align:center;backdrop-filter:blur(6px)}
 .stat-card .num{font-size:52px;font-weight:800;line-height:1.1}
-.stat-card.blue .num{color:#ADCEDF}
-.stat-card.green .num{color:#9FCBB0}
-.stat-card .lbl{color:#CFE0D2;font-size:15px;margin-top:4px}
+.stat-card.blue .num{color:#D4B48C}
+.stat-card.green .num{color:#A8C4B4}
+.stat-card .lbl{color:#DED5C7;font-size:15px;margin-top:4px}
 
 .feed{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:18px;
   padding:18px 20px;flex:1;min-height:320px;display:flex;flex-direction:column}
-.feed-head{font-size:16px;font-weight:700;color:#EDF3ED;margin-bottom:10px}
+.feed-head{font-size:16px;font-weight:700;color:#F0EAE0;margin-bottom:10px}
 .feed-list{flex:1;overflow-y:auto;max-height:420px;padding-right:6px}
 .feed-list::-webkit-scrollbar{width:8px}
 .feed-list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.22);border-radius:8px}
 .feed-row{display:grid;grid-template-columns:1.1fr 1.3fr auto auto;gap:12px;align-items:center;
   padding:11px 6px;border-bottom:1px solid rgba(255,255,255,.09);font-size:15px}
-.feed-row .who{font-weight:600;color:#fff}
-.feed-row .campus{color:#CFE0D2}
-.feed-row .time{color:rgba(255,255,255,.62);font-size:13px;font-variant-numeric:tabular-nums}
+.feed-row .who{font-weight:600;color:#F5F1EC}
+.feed-row .campus{color:#DED5C7}
+.feed-row .time{color:rgba(255,255,255,.6);font-size:13px;font-variant-numeric:tabular-nums}
 .feed-row .tag{white-space:nowrap}
-/* 动态列表徽章：已签到=淡蓝，已签离=绿（与统计卡语义一致） */
-.board-page .feed-row .tag{background:rgba(173,206,223,.2);color:#B9DCEA;border:1px solid rgba(173,206,223,.42)}
-.board-page .feed-row .tag.g{background:rgba(159,203,176,.2);color:#B0D6BF;border-color:rgba(159,203,176,.45)}
+/* 动态列表徽章：已签到=沙金，已签离=绿（与统计卡语义一致） */
+.board-page .feed-row .tag{background:rgba(212,180,140,.18);color:#E0C79C;border:1px solid rgba(212,180,140,.45)}
+.board-page .feed-row .tag.g{background:rgba(107,142,127,.2);color:#A8C4B4;border-color:rgba(107,142,127,.45)}
 
 .board-foot{text-align:center;margin-top:28px}
-.switch-mode{background:#4E6B55;border:1px solid rgba(255,255,255,.2);color:#fff;font-size:18px;font-weight:700;
-  padding:14px 34px;border-radius:12px;cursor:pointer;font-family:inherit}
-.switch-mode:hover{background:#3B5645}
+.switch-mode{background:#D4B48C;border:1px solid rgba(255,255,255,.2);color:#fff;font-size:18px;font-weight:700;
+  padding:14px 34px;border-radius:12px;cursor:pointer;font-family:inherit;letter-spacing:2px}
+.switch-mode:hover{background:#C4A47C}

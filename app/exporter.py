@@ -6,7 +6,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 from .access import activity_stats
 
-HEADER_FILL = PatternFill("solid", fgColor="3B5645")
+HEADER_FILL = PatternFill("solid", fgColor="8A6B52")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
 
 
