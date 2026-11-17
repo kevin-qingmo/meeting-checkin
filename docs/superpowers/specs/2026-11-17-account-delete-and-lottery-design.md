@@ -55,7 +55,7 @@
 |---|---|---|
 | `id` | Integer PK | |
 | `activity_id` | Integer FK → `activities.id` | 所属活动 |
-| `draw_count` | Integer | 本轮请求抽取人数 |
+| `draw_count` | Integer | 本轮**实际抽中**人数（请求人数可能大于可抽人数，落库的是实际抽中数） |
 | `winners_json` | Text | 中奖名单 JSON：`[{"name":..., "campus":..., "phone":...}]` |
 | `excluded` | Boolean | 本轮是否启用「排除已中奖者」 |
 | `operator_id` | Integer FK → `users.id` | 操作人 |
@@ -76,14 +76,30 @@
 - 入参：`count`（整数 ≥ 1，默认 1）、`exclude_winners`（勾选框，默认开启）。
 - 候选池：该活动的 `CheckIn` 记录（`checked_in_at` 非空即视为已签到；扫码与补录都算）。
 - 若勾选排除：剔除历史中奖人。
-- 实际抽取人数 `min(count, len(候选池))`；候选为空 → 返回 `ok=false` 与提示「暂无可抽取人员（需先签到）」。
+- 实际抽取人数 `min(count, len(候选池))`；候选池为空 → 返回 `ok=false` 与提示「暂无可抽取人员（需先签到）」。
 - 随机：`secrets.SystemRandom().sample(候选池, k)`。
-- 写入 `LotteryRound`，返回 JSON：`{ok, message, round:{id, draw_count, winners:[...], created_at, operator}}`。
-- 每次抽取**成功**（候选池 ≥1 人）都落一条轮次记录（便于审计）；候选池为空时不落记录，直接返回提示。
+- 写入 `LotteryRound`，返回 JSON：`{ok, message, round:{id, seq, draw_count, winners:[...], created_at, operator}}`。
+- 每次抽取**成功**都落一条轮次记录（便于审计）。两种失败都**不落记录**：
+  - 候选池为空（无人签到）→ 400「暂无可抽取人员，请先完成签到」；
+  - 候选池非空但**全部已中奖**（勾选了「排除已中奖者」且无人可再抽）→ 400
+    「候选人员都已中过奖，可开启『允许重复中奖』」，与「暂无可抽取人员」区分开。
 
-**读取接口** `GET /api/activity/<int:activity_id>/lottery`（`app/routes/api.py`）
-- **公开只读**，与 `/board/<id>` 同权限层级（大屏投屏无需登录）。
-- 返回该活动最近 5 轮：`{rounds:[{id, draw_count, winners:[...], created_at, operator, excluded}], latest:{...}|null}`。
+**轮次编号口径**：后台历史表格与 Excel 导出统一使用**活动内序号**（该活动内按 id 升序的 1..n），
+不使用 `lottery_rounds` 的全局 id（跨活动不连续，复盘时「第几轮」会对不上）。
+序号由服务端统一计算（`app/lottery.py` 的 `round_seq_map`），后台与 Excel 取同一来源。
+
+**读取接口** 两个，分工不同：
+
+- `GET /admin/activity/<int:activity_id>/lottery`（`app/routes/admin.py`）——**登录态私有接口**
+  - 登录 + 活动归属校验（复用 `get_managed_activity`），他人活动 → 403。
+  - 返回该活动**全部**轮次：`{rounds:[{id, seq, draw_count, winners:[...], created_at, operator, excluded}], latest:{...}|null}`。
+  - 后台「历史抽奖记录」表格用它（公开接口只给最近 5 轮，第 6 轮以后在后台看不到）。
+- `GET /api/activity/<int:activity_id>/lottery`（`app/routes/api.py`）——**公开只读**
+  - 供大屏/投屏等匿名场景使用，返回最近 5 轮。
+  - 公开响应只保留中奖人姓名与校区，**不含手机号，也不含操作人姓名**；
+    操作人等内部信息走上面的登录态私有接口。
+  - 注：`/board/<id>`（大屏页面）本身带 `@login_required`，大屏访问者需要登录；
+    本公开接口是为「匿名投屏」场景预留的，两者权限层级并不相同。
 
 ### 4.4 活动后台界面（`app/templates/admin/dashboard.html`）
 - 新增「随机抽签」卡片：
@@ -103,6 +119,7 @@
 ### 4.6 Excel 导出（`app/exporter.py`）
 - 在现有三张表（签到明细 / 应到实到统计 / 缺席名单）之后**新增第 4 张表「抽奖记录」**：
   列 = 轮次 / 抽取时间 / 抽取人数 / 中奖名单 / 操作人 / 排除已中奖者。
+- 「轮次」列用**活动内序号**（与后台历史表格同一口径、同一来源）。
 - 表头填充色沿用主色 `8A6B52`。
 
 ## 5. 测试方案
@@ -117,6 +134,15 @@
 7. 勾选「排除已中奖者」时历史中奖人不再被抽中；不勾选时可再次抽中。
 8. `GET /api/activity/<id>/lottery` 公开可读且返回最近轮次。
 9. 导出 Excel 的 sheetnames 变为 4 张且含「抽奖记录」。
+10. 候选池非空但全部已中奖 → 400 且提示「候选人员都已中过奖…」，且**不落轮次记录**。
+11. 轮次编号：两个活动各抽一轮，两边的「第 1 轮」一致（活动内序号，不是全局 id）。
+12. 后台私有接口 `GET /admin/activity/<id>/lottery` 返回**全部**轮次（抽 6 轮得 6 条），
+    未登录 → 302/401/403，他人活动 → 403。
+13. 公开只读接口的响应体不含 `operator` 字段与操作人姓名。
+14. 活动标题含单引号/换行/`</script>` 时，两个页面的删除确认仍是合法可执行的 JS。
+15. 开启 SQLite 外键约束（`PRAGMA foreign_keys=ON`）后：删账号不残留悬空 `operator_id`、
+    他人活动仍在且其上轮次 `operator_id` 置空；删带轮次的活动不报错且数据全部清零。
+16. 关系集合已被加载时删除活动不得 500（StaleDataError 兜底）。
 
 ### 5.2 浏览器端到端（新增 `tools/ui_check_lottery.js`）
 - 后台抽奖 → 弹层出现中奖名单 → 历史记录新增一行。

@@ -6,6 +6,7 @@ from flask import (Blueprint, abort, flash, jsonify, redirect, render_template,
 from flask_login import current_user, login_required
 from openpyxl import Workbook
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm.exc import StaleDataError
 
 from ..access import (activity_stats, dict_campuses, dict_stages, dict_subjects,
                       get_managed_activity, live_payload, name_map)
@@ -171,6 +172,9 @@ def activity_delete(activity_id):
     LotteryRound.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
     CheckIn.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
     Roster.query.filter_by(activity_id=act.id).delete(synchronize_session=False)
+    # 子行已在数据库层面删除，必须丢弃会话里可能已加载的关系集合：
+    # 否则 ORM 会试图把这些子行的 activity_id 置空，而子行已不存在 → StaleDataError。
+    db.session.expire(act, ["checkins", "roster", "lottery_rounds"])
     db.session.delete(act)
     db.session.commit()
     flash("已删除活动「{}」".format(title), "success")
@@ -409,10 +413,14 @@ def users():
                             Roster.activity_id.in_(act_ids)).delete(synchronize_session=False)
                         Activity.query.filter(
                             Activity.id.in_(act_ids)).delete(synchronize_session=False)
+                    # 名下活动已在数据库层面删除，丢弃会话里可能已加载的集合，
+                    # 否则 ORM 会试图把残留活动的 owner_id 置空 → StaleDataError
+                    db.session.expire(u, ["activities"])
                     db.session.delete(u)
                     db.session.commit()
-                except IntegrityError:
-                    # 外键冲突等：回滚整笔操作，不留半删，给出中文提示
+                except (IntegrityError, StaleDataError):
+                    # 外键冲突、并发删除导致行数不匹配等：回滚整笔操作，不留半删，
+                    # 给出中文提示（不得 500）
                     db.session.rollback()
                     flash("删除失败，请稍后重试", "error")
                 else:

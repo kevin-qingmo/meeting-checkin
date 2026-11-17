@@ -40,8 +40,7 @@ const ok = (c, m) => {
 
   // 用一个「抽签端到端校验」专用活动：候选池里只有本脚本补录的三个人，
   // 因此「中奖人必然出自这三人之一」成立，大屏断言才有意义。
-  // 专用活动只增不减（app/routes/admin.py 的活动删除在有抽奖轮次时会 500，属既有缺陷，不在本任务范围），
-  // 每次运行前先清空它的签到人员，保证候选池干净。
+  // 专用活动只增不减（每次运行前先清空它的签到人员，保证候选池干净）。
   const MARK = '抽签端到端校验';
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
@@ -131,9 +130,10 @@ const ok = (c, m) => {
   await sleep(1500);
   ctx.lotteryMsg = await p.evaluate(() => document.getElementById('lottery-msg').textContent.trim());
   ctx.latest = await p.evaluate(async (aid) => {
-    const r = await fetch(`/api/activity/${aid}/lottery`);
+    // 公开只读接口不带操作人（内部信息），调试用登录态私有接口
+    const r = await fetch(`/admin/activity/${aid}/lottery`);
     const d = await r.json();
-    return d.latest ? { id: d.latest.id, draw_count: d.latest.draw_count, winners: d.latest.winners, operator: d.latest.operator } : null;
+    return d.latest ? { id: d.latest.id, seq: d.latest.seq, draw_count: d.latest.draw_count, winners: d.latest.winners, operator: d.latest.operator } : null;
   }, aid);
   const overlayShown = await p.evaluate(() => document.getElementById('lottery-overlay').classList.contains('show'));
   ok(overlayShown, '抽奖后弹层出现（接口 message: ' + ctx.lotteryMsg + '）');

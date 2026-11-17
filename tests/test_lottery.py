@@ -9,6 +9,7 @@ from app import lottery as app_lottery
 from app.extensions import db
 from app.models import Activity, CheckIn, LotteryRound, Roster, User
 from conftest import login
+import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.schema import CreateTable
 
@@ -1252,3 +1253,147 @@ def test_export_lottery_sheet_skips_empty_winner_names(client, app):
     ws = _export_lottery_sheet(client, app, aid)
     names = [c.value for c in ws[2]][3]
     assert names == "甲、乙"
+
+
+# ---------------------------------------------------------------- 删除路径的健壮性
+
+
+def test_delete_activity_with_loaded_relations_does_not_500(client, app, monkeypatch):
+    """关系集合已在会话中加载时删除活动不得 500（ORM 置空子行 FK → StaleDataError）。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    with app.app_context():
+        db.session.add(Roster(activity_id=aid, name="张三", campus="敬慧路校区"))
+        db.session.add(LotteryRound(activity_id=aid, draw_count=1,
+                                    winners_json="[]", excluded=True, operator_id=None))
+        db.session.commit()
+    login(client)
+
+    from app.routes import admin as admin_module
+    real = admin_module.get_managed_activity
+
+    def preload(activity_id):
+        act = real(activity_id)
+        # 模拟「有人先访问过 activity_stats(act)」这类会把关系集合加载进会话的情况
+        assert act.checkins is not None
+        assert act.roster is not None
+        assert act.lottery_rounds is not None
+        return act
+
+    monkeypatch.setattr(admin_module, "get_managed_activity", preload)
+    resp = client.post("/admin/activity/%d/delete" % aid, follow_redirects=True)
+    assert resp.status_code == 200
+    assert "已删除活动" in resp.get_data(as_text=True)
+    with app.app_context():
+        assert Activity.query.filter_by(id=aid).count() == 0
+        assert CheckIn.query.filter_by(activity_id=aid).count() == 0
+        assert Roster.query.filter_by(activity_id=aid).count() == 0
+        assert LotteryRound.query.filter_by(activity_id=aid).count() == 0
+
+
+def test_delete_account_stale_data_error_shows_friendly_message(client, app, monkeypatch):
+    """StaleDataError 也必须被兜住：回滚并给出中文提示，不得 500。"""
+    from sqlalchemy.orm.exc import StaleDataError
+    login(client)
+    other_id = _teacher2_id(app)
+
+    def boom(self, *args, **kwargs):
+        raise StaleDataError("DELETE", {}, Exception("forced stale data error"))
+
+    monkeypatch.setattr(db.session.__class__, "commit", boom)
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(other_id)},
+                    follow_redirects=True)
+    monkeypatch.undo()
+
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "删除失败" in body
+    assert "已删除账号" not in body
+    with app.app_context():
+        assert db.session.get(User, other_id) is not None
+
+
+def test_lottery_all_candidates_already_won_returns_distinct_message(client, app):
+    """候选池非空但全部已中奖时，提示语要与「暂无可抽取人员」区分开。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    login(client)
+    first = client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    assert first.status_code == 200
+
+    second = client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    assert second.status_code == 400
+    message = second.get_json()["message"]
+    assert "都已中过奖" in message
+    assert "允许重复中奖" in message
+    assert "暂无可抽取人员" not in message
+    # 失败不得落轮次记录
+    with app.app_context():
+        assert LotteryRound.query.filter_by(activity_id=aid).count() == 1
+
+
+# ---------------------------------------------------------------- 外键约束下的级联删除
+
+
+def test_delete_account_and_activity_with_foreign_keys_enabled(client, app):
+    """开启外键约束（生产 Postgres 语义）后，删账号/删活动都不得报错。
+
+    覆盖：删账号后 checkins / lottery_rounds 中无悬空 operator_id；
+    别人的活动仍在，其上该用户操作产生的轮次 operator_id 变为 None；
+    删除带抽签轮次的活动不报错，且轮次/签到/名册/活动全部清零。
+    """
+    aid = app.config["TEST_ACTIVITY_ID"]
+    with app.app_context():
+        # PRAGMA 是连接级的；SQLite 内存库（SingletonThreadPool）与会话同一条连接
+        _enable_sqlite_foreign_keys(db.engine)
+        # 确认约束真的生效（否则本用例是空跑）
+        with pytest.raises(IntegrityError):
+            db.session.add(CheckIn(activity_id=999999, name="越界", phone="0",
+                                   campus="敬慧路校区", code_used="1234", mode="in",
+                                   source="scan", checked_in_at=datetime.now()))
+            db.session.commit()
+        db.session.rollback()
+        other = User.query.filter_by(username="teacher2").one()
+        other_id = other.id
+        db.session.add(CheckIn(activity_id=aid, name="王五", phone="13800000007",
+                               campus="敬慧路校区", code_used="1234", mode="in",
+                               source="manual", checked_in_at=datetime.now(),
+                               operator_id=other_id))
+        db.session.add(LotteryRound(activity_id=aid, draw_count=1,
+                                    winners_json="[]", excluded=True, operator_id=other_id))
+        db.session.add(Roster(activity_id=aid, name="王五", campus="敬慧路校区"))
+        db.session.commit()
+
+    login(client)
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(other_id)},
+                    follow_redirects=True)
+    assert "已删除账号" in r.get_data(as_text=True)
+
+    with app.app_context():
+        assert db.session.get(User, other_id) is None
+        # 别人的活动仍在
+        assert db.session.get(Activity, aid) is not None
+        # 无悬空 operator_id
+        dangling_checkin = db.session.query(CheckIn).filter(
+            CheckIn.operator_id.isnot(None),
+            ~db.session.query(User.id).filter(User.id == CheckIn.operator_id).exists(),
+        ).count()
+        dangling_round = db.session.query(LotteryRound).filter(
+            LotteryRound.operator_id.isnot(None),
+            ~db.session.query(User.id).filter(User.id == LotteryRound.operator_id).exists(),
+        ).count()
+        assert dangling_checkin == 0
+        assert dangling_round == 0
+        # 该用户留下的轮次保留，操作人置空
+        rows = LotteryRound.query.filter_by(activity_id=aid).all()
+        assert rows and all(row.operator_id is None for row in rows)
+
+    # 删除带抽签轮次的活动：不得报错，且全部清零
+    resp = client.post("/admin/activity/%d/delete" % aid, follow_redirects=True)
+    assert resp.status_code == 200
+    assert "已删除活动" in resp.get_data(as_text=True)
+    with app.app_context():
+        assert Activity.query.filter_by(id=aid).count() == 0
+        assert CheckIn.query.filter_by(activity_id=aid).count() == 0
+        assert Roster.query.filter_by(activity_id=aid).count() == 0
+        assert LotteryRound.query.filter_by(activity_id=aid).count() == 0
