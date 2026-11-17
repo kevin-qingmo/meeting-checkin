@@ -1,11 +1,14 @@
 """随机抽签与账号删除的测试。"""
+import html
 import json
+import re
 from datetime import datetime, timedelta
 
 from app import lottery as app_lottery
 from app.extensions import db
 from app.models import Activity, CheckIn, LotteryRound, Roster, User
 from conftest import login
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.schema import CreateTable
 
 
@@ -547,7 +550,7 @@ def test_creator_can_delete_admin_account(client, app):
                     follow_redirects=True)
     assert "已删除账号" in r.get_data(as_text=True)
     with app.app_context():
-        assert User.query.get(uid) is None
+        assert db.session.get(User, uid) is None
 
 
 def test_delete_account_cascades_its_activities(client, app):
@@ -586,7 +589,7 @@ def test_cannot_delete_current_account(client, app):
     body = r.get_data(as_text=True)
     assert "不能删除当前登录的账号" in body
     with app.app_context():
-        assert User.query.get(uid) is not None
+        assert db.session.get(User, uid) is not None
 
 
 def test_normal_admin_cannot_delete_accounts(client, app):
@@ -596,7 +599,7 @@ def test_normal_admin_cannot_delete_accounts(client, app):
     r = client.post("/admin/users", data={"action": "delete", "uid": str(uid)})
     assert r.status_code == 403
     with app.app_context():
-        assert User.query.get(uid) is not None
+        assert db.session.get(User, uid) is not None
 
 
 def test_delete_account_clears_operator_references(client, app):
@@ -621,7 +624,7 @@ def test_delete_account_clears_operator_references(client, app):
     assert "已删除账号" in r.get_data(as_text=True)
 
     with app.app_context():
-        assert User.query.get(other_id) is None
+        assert db.session.get(User, other_id) is None
         # 该用户作为操作人的记录：引用被置空（记录本身若属于他人活动则保留）
         assert CheckIn.query.filter(CheckIn.operator_id == other_id).count() == 0
         assert LotteryRound.query.filter(LotteryRound.operator_id == other_id).count() == 0
@@ -668,13 +671,156 @@ def test_delete_account_keeps_other_activities_and_nulls_round_operator(client, 
         assert all(r["operator"] == "" for r in rounds)
 
 
+def _confirm_messages(body):
+    """从页面里抽出删除按钮的二次确认文案（按 |tojson 的语义还原）。
+
+    onsubmit 属性用单引号包裹（JSON 字符串用双引号），属性内不会出现裸单引号，
+    因此可用 [^']* 取出属性原文，再还原 HTML 实体、取出 JSON 字符串字面量并反序列化。
+    """
+    out = []
+    for attr in re.findall(r"onsubmit='([^']*)'", body):
+        text = html.unescape(attr)
+        m = re.search(r'confirm\((".*?")\)', text, re.S)
+        if m:
+            out.append(json.loads(m.group(1)))
+    return out
+
+
 def test_users_page_has_delete_button_with_warning(client, app):
     """账号管理页：他人行有删除按钮与二次确认文案，当前账号行保留改姓名表单。"""
     login(client)
     body = client.get("/admin/users").get_data(as_text=True)
     assert 'value="delete"' in body
-    assert "该账号名下的活动、名册与签到记录会一并删除，且无法恢复。" in body
     assert 'value="rename"' in body
     # 界面文案不得出现「超级管理员」，角色称谓统一为「创建者」
     assert "超级管理员" not in body
     assert "创建者" in body
+    # 二次确认文案（tojson 转义后仍能还原出完整中文）
+    msgs = _confirm_messages(body)
+    assert msgs
+    assert all("该账号名下的活动、名册与签到记录会一并删除，且无法恢复。" in m for m in msgs)
+    # 不得再出现会被姓名里的单引号打断的旧写法
+    assert "confirm('" not in body
+
+
+def test_delete_button_confirmation_text_is_js_safe(client, app):
+    """姓名含单引号时，确认文案必须仍是合法的 JS 字符串（不得跳过二次确认）。"""
+    login(client)
+    with app.app_context():
+        u = User(username="obrien", display_name="O'Brien", role="admin")
+        u.set_password("obrien123456")
+        db.session.add(u)
+        db.session.commit()
+
+    body = client.get("/admin/users").get_data(as_text=True)
+    # 旧的写法：confirm('...{{ 姓名 }}...') 会被裸单引号打断
+    assert "confirm('" not in body
+    # 姓名在表格单元格里仍是 HTML 转义形式
+    assert "O&#39;Brien" in body
+    # 确认文案能被 |tojson 语义正确还原，且保留原始姓名
+    msgs = [m for m in _confirm_messages(body) if "O'Brien" in m]
+    assert msgs, "确认文案未包含原始姓名"
+    assert all("且无法恢复。" in m for m in msgs)
+    # 姓名里的单引号不得原样出现在 JS 字面量中（必须已转义）
+    assert "O'Brien" not in body
+
+
+def test_delete_account_with_invalid_uid_returns_friendly_error(client, app):
+    """非法 uid（如上标数字 '²'）不得 500，必须给出友好提示且账号仍在。"""
+    login(client)
+    r = client.post("/admin/users", data={"action": "delete", "uid": "²"},
+                    follow_redirects=True)
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "账号不存在" in body
+    with app.app_context():
+        assert db.session.query(User).count() == 2
+
+
+def test_delete_account_requires_login(client, app):
+    """未登录不得删除任何账号。"""
+    other_id = _teacher2_id(app)
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(other_id)})
+    assert r.status_code in (302, 401, 403)
+    with app.app_context():
+        assert db.session.get(User, other_id) is not None
+
+
+def test_cannot_delete_self_keeps_own_data(client, app):
+    """自删被拒时，其名下的活动、名册、签到、轮次必须原封不动。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    login(client)
+    with app.app_context():
+        me = db.session.query(User).filter_by(username="admin").one()
+        me_id = me.id
+        db.session.add(Roster(activity_id=aid, name="李四", campus="敬慧路校区"))
+        db.session.add(CheckIn(activity_id=aid, name="李四", phone="13800000008",
+                               campus="敬慧路校区", code_used="1234", mode="in",
+                               source="scan", checked_in_at=datetime.now()))
+        db.session.add(LotteryRound(activity_id=aid, draw_count=1, winners_json="[]",
+                                    excluded=True, operator_id=me_id))
+        db.session.commit()
+
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(me_id)},
+                    follow_redirects=True)
+    assert "不能删除当前登录的账号" in r.get_data(as_text=True)
+
+    with app.app_context():
+        db.session.expire_all()
+        assert db.session.get(User, me_id) is not None
+        assert db.session.get(Activity, aid) is not None
+        assert Roster.query.filter_by(activity_id=aid).count() == 1
+        assert CheckIn.query.filter_by(activity_id=aid).count() == 1
+        assert LotteryRound.query.filter_by(activity_id=aid).count() == 1
+        assert LotteryRound.query.filter_by(activity_id=aid).one().operator_id == me_id
+
+
+def test_cannot_delete_another_creator_account(client, app):
+    """删除能力限定在普通管理员：另一个创建者账号不得被删除。"""
+    login(client)
+    with app.app_context():
+        other_creator = User(username="creator2", display_name="另一位创建者", role="super")
+        other_creator.set_password("creator2123456")
+        db.session.add(other_creator)
+        db.session.commit()
+        other_id = other_creator.id
+
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(other_id)},
+                    follow_redirects=True)
+    body = r.get_data(as_text=True)
+    assert "不能删除创建者账号" in body
+    assert "已删除账号" not in body
+    with app.app_context():
+        assert db.session.get(User, other_id) is not None
+
+
+def test_delete_account_flash_without_activities(client, app):
+    """名下没有活动时，提示文案不应出现「及其 0 个活动」。"""
+    other_id = _teacher2_id(app)
+    login(client)
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(other_id)},
+                    follow_redirects=True)
+    body = r.get_data(as_text=True)
+    assert "已删除账号「张老师」" in body
+    assert "0 个活动" not in body
+
+
+def test_delete_account_integrity_error_shows_friendly_message(client, app, monkeypatch):
+    """外键冲突等异常不得 500，必须回滚并给出中文提示。"""
+    login(client)
+    other_id = _teacher2_id(app)
+
+    def boom(self, *args, **kwargs):
+        raise IntegrityError("DELETE", {}, Exception("forced integrity error"))
+
+    monkeypatch.setattr(db.session.__class__, "commit", boom)
+    r = client.post("/admin/users", data={"action": "delete", "uid": str(other_id)},
+                    follow_redirects=True)
+    monkeypatch.undo()
+
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "删除失败" in body
+    assert "已删除账号" not in body
+    with app.app_context():
+        assert db.session.get(User, other_id) is not None

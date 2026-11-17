@@ -33,7 +33,7 @@
             <form method="post" style="display:inline"><input type="hidden" name="action" value="role"><input type="hidden" name="uid" value="{{ u.id }}"><button class="btn btn-sm btn-ghost">改角色</button></form>
             <form method="post" style="display:inline"><input type="hidden" name="action" value="toggle"><input type="hidden" name="uid" value="{{ u.id }}"><button class="btn btn-sm btn-ghost">{{ '停用' if u.active else '启用' }}</button></form>
             <form method="post" style="display:inline"
-                  onsubmit="return confirm('确定删除账号「{{ u.display_name }}」吗？\n\n该账号名下的活动、名册与签到记录会一并删除，且无法恢复。');">
+                  onsubmit='return confirm({{ ("确定删除账号「" ~ u.display_name ~ "」吗？\n\n该账号名下的活动、名册与签到记录会一并删除，且无法恢复。") | tojson }})'>
               <input type="hidden" name="action" value="delete">
               <input type="hidden" name="uid" value="{{ u.id }}">
               <button class="btn btn-sm btn-red" type="submit">删除</button>
