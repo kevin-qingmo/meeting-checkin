@@ -2,6 +2,7 @@
 import json
 from datetime import datetime, timedelta
 
+from app import lottery as app_lottery
 from app.extensions import db
 from app.models import Activity, CheckIn, LotteryRound, Roster, User
 from conftest import login
@@ -123,3 +124,44 @@ def test_lottery_round_operator_fk_set_null_when_user_deleted(app):
             ~db.session.query(User.id).filter(User.id == LotteryRound.operator_id).exists(),
         ).count()
         assert dangling == 0
+
+
+def test_candidate_pool_only_contains_signed_in(app):
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    with app.app_context():
+        act = db.session.get(Activity, aid)
+        pool = app_lottery.candidate_pool(act)
+        assert [r.name for r in pool] == ["张三"]
+
+
+def test_draw_only_from_signed_in(app):
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    _signed_in(app, aid, "李四", "13800000002")
+    with app.app_context():
+        act = db.session.get(Activity, aid)
+        winners, available = app_lottery.draw(act, 5)
+        assert available == 2
+        assert len(winners) == 2
+        assert {w["name"] for w in winners} == {"张三", "李四"}
+
+
+def test_draw_excludes_previous_winners_when_flag_on(app):
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    _signed_in(app, aid, "李四", "13800000002")
+    with app.app_context():
+        act = db.session.get(Activity, aid)
+        winners, _ = app_lottery.draw(act, 1)
+        app_lottery.save_round(act, winners, 1, True, None)
+        second, available = app_lottery.draw(act, 1, exclude_winners=True)
+        assert available == 1
+        assert second[0]["name"] != winners[0]["name"]
+        third, available3 = app_lottery.draw(act, 1, exclude_winners=False)
+        assert available3 == 2
+
+
+def test_person_key_prefers_phone():
+    assert app_lottery.person_key("张三", "校区A", "13800000000") == "p:13800000000"
+    assert app_lottery.person_key("张三", "校区A", "") == "n:张三|校区A"
