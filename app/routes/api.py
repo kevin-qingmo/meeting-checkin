@@ -79,11 +79,23 @@ def _parse_dt(raw):
     return None
 
 
+def _public_round(round_data):
+    """公开视图：抹掉中奖人手机号，只保留姓名与校区。"""
+    if not round_data:
+        return round_data
+    public = dict(round_data)
+    public["winners"] = [
+        {"name": w.get("name", ""), "campus": w.get("campus", "")}
+        for w in (round_data.get("winners") or [])
+    ]
+    return public
+
+
 @bp.route("/api/activity/<int:activity_id>/lottery")
 def activity_lottery(activity_id):
-    """抽签记录（公开只读，供大屏投屏使用）。"""
+    """抽签记录（公开只读，供大屏投屏使用；中奖人手机号不外泄）。"""
     activity = db.session.get(Activity, activity_id)
     if activity is None:
         return jsonify({"ok": False, "message": "活动不存在"}), 404
-    rounds = recent_rounds(activity, 5)
+    rounds = [_public_round(r) for r in recent_rounds(activity, 5)]
     return jsonify({"ok": True, "rounds": rounds, "latest": rounds[0] if rounds else None})

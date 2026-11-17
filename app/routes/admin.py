@@ -149,6 +149,24 @@ def activity_delete(activity_id):
     return redirect(url_for("admin.activities"))
 
 
+def _exclude_winners_flag(raw):
+    """判定「排除已中奖」开关：默认开启，仅显式传关闭值时才关闭。
+
+    判定表：
+      字段缺失（None）      → True（缺省排除）
+      "" / 纯空白           → True（视为缺省）
+      on / 1 / true / yes   → True
+      0 / off / false / no  → False（显式关闭）
+      其它任意值            → True（默认排除）
+    """
+    if raw is None:
+        return True
+    value = str(raw).strip().lower()
+    if not value:
+        return True
+    return value not in ("0", "off", "false", "no")
+
+
 @bp.route("/activity/<int:activity_id>/lottery", methods=["POST"])
 @login_required
 def activity_lottery(activity_id):
@@ -159,7 +177,7 @@ def activity_lottery(activity_id):
     except (TypeError, ValueError):
         count = 1
     count = max(1, count)
-    exclude = request.form.get("exclude_winners") in ("on", "1", "true", "yes")
+    exclude = _exclude_winners_flag(request.form.get("exclude_winners"))
     if not candidate_pool(act):
         return jsonify({"ok": False, "message": "暂无可抽取人员，请先完成签到"}), 400
     winners, available = draw(act, count, exclude)
@@ -168,7 +186,8 @@ def activity_lottery(activity_id):
             "ok": False,
             "message": "可抽取人员不足（可抽 {} 人）".format(available),
         }), 400
-    row = save_round(act, winners, count, exclude, current_user.id)
+    # draw_count 记录实际抽中人数（请求人数可能大于可抽人数）
+    row = save_round(act, winners, len(winners), exclude, current_user.id)
     if row is None:
         # 兜底：save_round 在中奖人为空时不落库
         return jsonify({"ok": False, "message": "暂无可抽取人员，请先完成签到"}), 400

@@ -320,3 +320,73 @@ def test_lottery_read_endpoint_404_for_missing_activity(client):
     r = client.get("/api/activity/999999/lottery")
     assert r.status_code == 404
     assert r.get_json()["ok"] is False
+
+
+def test_lottery_read_endpoint_hides_phone(client, app):
+    """公开只读接口不得向匿名访问者暴露中奖人手机号。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    _signed_in(app, aid, "李四", "13800000002")
+    login(client)
+    client.post("/admin/activity/%d/lottery" % aid, data={"count": "2"})
+    client.get("/logout")
+    r = client.get("/api/activity/%d/lottery" % aid)
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "phone" not in body
+    assert "13800000001" not in body
+    assert "13800000002" not in body
+    d = r.get_json()
+    assert d["ok"] is True
+    for rnd in d["rounds"]:
+        for w in rnd["winners"]:
+            assert set(w.keys()) == {"name", "campus"}
+    # 姓名与校区仍需保留，供大屏显示
+    assert d["latest"]["winners"][0]["name"] in ("张三", "李四")
+
+
+def test_lottery_endpoint_excludes_winners_by_default(client, app):
+    """缺省即开启「排除已中奖」：服务端默认值独立于前端正确。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    _signed_in(app, aid, "李四", "13800000002")
+    login(client)
+    r1 = client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    assert r1.status_code == 200
+    d1 = r1.get_json()
+    assert d1["round"]["excluded"] is True
+    r2 = client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    assert r2.status_code == 200
+    d2 = r2.get_json()
+    assert d2["round"]["excluded"] is True
+    # 第二轮不应再次抽中第一轮的人
+    assert d1["round"]["winners"][0]["name"] != d2["round"]["winners"][0]["name"]
+
+
+def test_lottery_endpoint_exclude_winners_can_be_disabled(client, app):
+    """显式传关闭值时才不排除已中奖。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    login(client)
+    for off_value in ("0", "off", "false", "no"):
+        r = client.post("/admin/activity/%d/lottery" % aid,
+                        data={"count": "1", "exclude_winners": off_value})
+        assert r.status_code == 200
+        assert r.get_json()["round"]["excluded"] is False, \
+            "exclude_winners={} 时应关闭排除".format(off_value)
+
+
+def test_lottery_endpoint_records_actual_draw_count(client, app):
+    """落库的 draw_count 是实际抽中人数，不是请求的人数。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    _signed_in(app, aid, "李四", "13800000002")
+    login(client)
+    r = client.post("/admin/activity/%d/lottery" % aid, data={"count": "5"})
+    assert r.status_code == 200
+    d = r.get_json()
+    assert len(d["round"]["winners"]) == 2
+    assert d["round"]["draw_count"] == 2
+    with app.app_context():
+        row = LotteryRound.query.filter_by(activity_id=aid).one()
+        assert row.draw_count == 2
