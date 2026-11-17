@@ -55,7 +55,9 @@ def draw(activity, count, exclude_winners=True):
 
 
 def save_round(activity, winners, draw_count, excluded, operator_id):
-    """写入一轮抽签记录。"""
+    """写入一轮抽签记录。候选池为空时不落库，返回 None。"""
+    if not winners:
+        return None
     row = LotteryRound(
         activity_id=activity.id,
         draw_count=draw_count,
@@ -68,13 +70,13 @@ def save_round(activity, winners, draw_count, excluded, operator_id):
     return row
 
 
-def serialize_round(row, operator_name=""):
+def serialize_round(round_row, operator_name=""):
     return {
-        "id": row.id,
-        "draw_count": row.draw_count,
-        "winners": row.winners,
-        "excluded": bool(row.excluded),
-        "created_at": row.created_at.strftime("%Y-%m-%d %H:%M:%S") if row.created_at else "",
+        "id": round_row.id,
+        "draw_count": round_row.draw_count,
+        "winners": round_row.winners,
+        "excluded": bool(round_row.excluded),
+        "created_at": round_row.created_at.strftime("%Y-%m-%d %H:%M:%S") if round_row.created_at else "",
         "operator": operator_name or "",
     }
 
