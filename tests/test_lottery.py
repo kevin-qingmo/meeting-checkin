@@ -1,5 +1,6 @@
 """随机抽签与账号删除的测试。"""
 import html
+import html.parser
 import json
 import re
 from datetime import datetime, timedelta
@@ -671,18 +672,47 @@ def test_delete_account_keeps_other_activities_and_nulls_round_operator(client, 
         assert all(r["operator"] == "" for r in rounds)
 
 
+class _OnsubmitCollector(html.parser.HTMLParser):
+    """收集页面里所有 onsubmit 属性值（HTML 实体已由解析器解码）。"""
+
+    def __init__(self):
+        super().__init__()
+        self.values = []
+
+    def handle_starttag(self, tag, attrs):
+        for name, value in attrs:
+            if name == "onsubmit" and value:
+                self.values.append(value)
+
+
+def _onsubmit_values(body):
+    """取出页面里全部 onsubmit 属性值。
+
+    用 HTMLParser 而非正则：属性值里的实体（&#39; 等）会被正确解码，
+    得到的正是浏览器实际执行的那段 JS。
+    """
+    parser = _OnsubmitCollector()
+    parser.feed(body)
+    parser.close()
+    return parser.values
+
+
 def _confirm_messages(body):
     """从页面里抽出删除按钮的二次确认文案（按 |tojson 的语义还原）。
 
     onsubmit 属性用单引号包裹（JSON 字符串用双引号），属性内不会出现裸单引号，
-    因此可用 [^']* 取出属性原文，再还原 HTML 实体、取出 JSON 字符串字面量并反序列化。
+    因此可用 HTMLParser 取到属性原文，再对 confirm( 之后的 JSON 字符串做反序列化。
     """
     out = []
-    for attr in re.findall(r"onsubmit='([^']*)'", body):
-        text = html.unescape(attr)
-        m = re.search(r'confirm\((".*?")\)', text, re.S)
-        if m:
-            out.append(json.loads(m.group(1)))
+    for attr in _onsubmit_values(body):
+        m = re.search(r"confirm\(", attr)
+        if not m:
+            continue
+        try:
+            value, _ = json.JSONDecoder().raw_decode(attr[m.end():])
+        except ValueError:
+            continue
+        out.append(value)
     return out
 
 
@@ -698,7 +728,8 @@ def test_users_page_has_delete_button_with_warning(client, app):
     # 二次确认文案（tojson 转义后仍能还原出完整中文）
     msgs = _confirm_messages(body)
     assert msgs
-    assert all("该账号名下的活动、名册与签到记录会一并删除，且无法恢复。" in m for m in msgs)
+    assert all("该账号名下的活动、名册、签到记录与抽签记录会一并删除，且无法恢复。" in m
+               for m in msgs)
     # 不得再出现会被姓名里的单引号打断的旧写法
     assert "confirm('" not in body
 
@@ -986,3 +1017,102 @@ def test_export_lottery_sheet_round_index_and_missing_operator(client, app):
     assert first[5] == "否"          # excluded=False
     assert second[4] == "教务主任"
     assert second[5] == "是"
+
+
+# ---------------------------------------------------------------- 删除确认的 XSS 防护
+
+# 恶意标题：含裸单引号（可打断 JS 单引号字符串）、换行、</script> 与事件属性
+XSS_TITLE = "Tom's 活动\n第二行</script><img src=x onerror=alert(1)>"
+
+
+def _activity_with_title(app, title, owner_username="admin"):
+    """新建一个指定标题的活动，返回活动 id。"""
+    with app.app_context():
+        owner = User.query.filter_by(username=owner_username).one()
+        act = Activity(
+            title=title, owner_id=owner.id,
+            start_at=datetime.now(), end_at=datetime.now() + timedelta(hours=1),
+        )
+        db.session.add(act)
+        db.session.commit()
+        return act.id
+
+
+def _assert_delete_confirm_is_js_safe(body, expect_title):
+    """断言页面里的删除二次确认仍是合法可执行的 JS。
+
+    - 属性值内不得出现裸单引号（否则标题可提前闭合 JS 字符串并注入代码）；
+    - confirm( 之后必须是合法 JSON 字符串（|tojson 的产物）；
+    - 至少有一条确认文案完整保留了原始标题（含单引号等）。
+    """
+    assert "confirm('" not in body, "页面仍在使用会被裸单引号打断的 confirm('...') 写法"
+    values = _onsubmit_values(body)
+    assert values, "页面里没有 onsubmit 属性，删除二次确认丢失"
+    messages = []
+    for attr in values:
+        assert "'" not in attr, "onsubmit 属性内出现裸单引号：{}".format(attr)
+        m = re.search(r"confirm\(", attr)
+        assert m, "onsubmit 属性不是 confirm(...) 形式：{}".format(attr)
+        # 属性值必须是「return confirm(<JSON 字符串>)」这一条合法语句
+        assert attr.strip().startswith("return confirm("), attr
+        value, end = json.JSONDecoder().raw_decode(attr[m.end():])
+        assert attr[m.end() + end:].strip() == ")", attr
+        messages.append(value)
+    assert any(expect_title in m for m in messages), \
+        "确认文案未保留原始标题：{}".format(messages)
+
+
+def test_activity_delete_confirm_in_dashboard_is_js_safe(client, app):
+    """后台活动页：标题含单引号/换行/</script> 时，确认属性仍必须是合法 JS。"""
+    aid = _activity_with_title(app, XSS_TITLE)
+    login(client)
+    body = client.get("/admin/activity/%d/dashboard" % aid).get_data(as_text=True)
+    _assert_delete_confirm_is_js_safe(body, XSS_TITLE)
+    # 标题里的标签片段不得以字面量出现在 HTML 里（否则可提前闭合脚本块）
+    assert "</script><img" not in body
+    assert "<img src=x" not in body
+
+
+def test_activity_delete_confirm_in_activities_list_is_js_safe(client, app):
+    """活动列表页的删除确认同样不得被标题注入。"""
+    aid = _activity_with_title(app, XSS_TITLE)
+    login(client)
+    body = client.get("/admin/").get_data(as_text=True)
+    _assert_delete_confirm_is_js_safe(body, XSS_TITLE)
+    assert "</script><img" not in body
+    assert "<img src=x" not in body
+
+
+def test_activity_delete_confirm_not_vulnerable_to_quote_breakout(client, app):
+    """标题里的单引号只能以转义形式出现在 JS 字面量中，不得原样出现。"""
+    aid = _activity_with_title(app, XSS_TITLE)
+    login(client)
+    body = client.get("/admin/activity/%d/dashboard" % aid).get_data(as_text=True)
+    for attr in _onsubmit_values(body):
+        # 裸单引号已被 |tojson 转成 \u0027
+        assert "\\u0027" in attr, attr
+        assert "Tom's" not in attr
+    # 标题在页面正文里是 HTML 实体转义形式
+    assert "Tom&#39;s" in body
+
+
+def test_users_page_delete_button_hidden_for_other_creator(client, app):
+    """另一个创建者的行不渲染删除按钮（服务端拦截仍保留）。"""
+    login(client)
+    with app.app_context():
+        creator2 = User(username="creator2", display_name="另一位创建者", role="super")
+        creator2.set_password("creator2123456")
+        db.session.add(creator2)
+        db.session.commit()
+    body = client.get("/admin/users").get_data(as_text=True)
+    # 只有普通管理员（teacher2）那一行渲染删除按钮
+    assert body.count('value="delete"') == 1
+
+
+def test_users_page_delete_message_mentions_lottery_records(client, app):
+    """账号删除确认文案要说明抽签记录也会一并删除。"""
+    login(client)
+    body = client.get("/admin/users").get_data(as_text=True)
+    msgs = _confirm_messages(body)
+    assert msgs
+    assert all("抽签记录" in m for m in msgs)

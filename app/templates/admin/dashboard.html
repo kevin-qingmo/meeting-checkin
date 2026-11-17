@@ -19,7 +19,7 @@
       <button class="btn btn-ghost" type="submit">{{ '取消归档' if activity.is_archived else '归档' }}</button>
     </form>
     <form method="post" action="{{ url_for('admin.activity_delete', activity_id=activity.id) }}" style="display:inline"
-          onsubmit="return confirm('确定删除活动「{{ activity.title }}」吗？\n\n该活动的名册和全部签到记录会一并删除，且无法恢复。');">
+          onsubmit='return confirm({{ ("确定删除活动「" ~ activity.title ~ "」吗？\n\n该活动的名册和全部签到记录会一并删除，且无法恢复。") | tojson }})'>
       <button class="btn btn-red" type="submit">删除活动</button>
     </form>
   </div>
@@ -173,7 +173,7 @@ async function loadLive(){
 }
 function esc(s){ return (s===null||s===undefined?'':String(s)).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 async function delCheckin(id){
-  if(!confirm('确定删除这条签到记录？')) return;
+  if(!confirm("确定删除这条签到记录？")) return;
   const r = await fetch(`/api/checkin/${id}/delete`, {method:'POST'});
   const d = await r.json();
   alert(d.message || '已删除');
