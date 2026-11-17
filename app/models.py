@@ -146,7 +146,7 @@ class LotteryRound(db.Model):
     draw_count = db.Column(db.Integer, default=1)
     winners_json = db.Column(db.Text, default="[]")
     excluded = db.Column(db.Boolean, default=True)
-    operator_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    operator_id = db.Column(db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.now)
 
     activity = db.relationship("Activity", backref="lottery_rounds")
@@ -155,9 +155,10 @@ class LotteryRound(db.Model):
     @property
     def winners(self):
         try:
-            return json.loads(self.winners_json or "[]")
+            data = json.loads(self.winners_json or "[]")
         except (ValueError, TypeError):
             return []
+        return data if isinstance(data, list) else []
 
 
 class Setting(db.Model):
