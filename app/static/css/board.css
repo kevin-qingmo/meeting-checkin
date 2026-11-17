@@ -68,3 +68,23 @@
 .switch-mode{background:#D4B48C;border:1px solid rgba(255,255,255,.2);color:#fff;font-size:18px;font-weight:700;
   padding:14px 34px;border-radius:12px;cursor:pointer;font-family:inherit;letter-spacing:2px}
 .switch-mode:hover{background:#C4A47C}
+
+/* ---------- 中奖名单（沿用大屏黑金配色：沙金强调 + 米白正文） ---------- */
+/* 大屏一屏放得下：动态列表略收窄，把空间让给中奖名单 */
+.board-page .board-side .feed:not(.winner-feed) .feed-list{max-height:300px}
+.winner-feed{min-height:0}
+.winner-round{font-size:15px;font-weight:400;color:#B3A894;margin-left:10px;letter-spacing:1px}
+/* 中奖名单区：不用滚动条，改为整行横向滚动 */
+.board-page .winner-list{flex:0 0 auto;min-height:150px;max-height:none;overflow:hidden;
+  display:flex;align-items:center;justify-content:center}
+.winner-empty{color:#8A8175;font-size:22px;letter-spacing:3px}
+.winner-marquee{width:100%;overflow:hidden}
+.winner-marquee-inner{display:inline-block;white-space:nowrap;padding-left:100%;
+  font-size:46px;font-weight:800;color:#D4B48C;letter-spacing:6px;
+  animation:winner-scroll 20s linear infinite}
+.winner-item{display:inline-block;margin-right:34px}
+.winner-campus{font-size:20px;font-weight:600;color:#DED5C7;letter-spacing:2px;margin-left:10px}
+@keyframes winner-scroll{from{transform:translateX(0)}to{transform:translateX(-100%)}}
+@media (prefers-reduced-motion:reduce){
+  .winner-marquee-inner{animation:none;padding-left:0}
+}
