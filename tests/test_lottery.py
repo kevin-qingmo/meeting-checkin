@@ -429,11 +429,13 @@ def test_lottery_read_endpoint_survives_malformed_winners(client, app):
     """脏数据（winners_json 元素非 dict）不得让公开接口 500。"""
     aid = app.config["TEST_ACTIVITY_ID"]
     with app.app_context():
-        db.session.add(LotteryRound(
+        dirty = LotteryRound(
             activity_id=aid, draw_count=1,
             winners_json='["oops"]', excluded=True, operator_id=None,
-        ))
+        )
+        db.session.add(dirty)
         db.session.commit()
+        dirty_id = dirty.id
     # 未登录的公开接口也必须扛得住脏数据
     r = client.get("/api/activity/%d/lottery" % aid)
     assert r.status_code == 200
@@ -443,3 +445,54 @@ def test_lottery_read_endpoint_survives_malformed_winners(client, app):
         for w in rnd["winners"]:
             assert isinstance(w, dict)
             assert set(w.keys()) == {"name", "campus"}
+    # 脏数据轮次本身仍返回，只是畸形元素被跳过
+    dirty_round = [rnd for rnd in d["rounds"] if rnd["id"] == dirty_id]
+    assert dirty_round and dirty_round[0]["winners"] == []
+
+
+def test_lottery_endpoint_tolerates_malformed_history(client, app):
+    """库里有畸形 winners_json 的旧轮次时，管理员仍可正常抽签（不得 500）。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    _signed_in(app, aid, "张三", "13800000001")
+    with app.app_context():
+        db.session.add(LotteryRound(
+            activity_id=aid, draw_count=1,
+            winners_json='["oops"]', excluded=True, operator_id=None,
+        ))
+        db.session.commit()
+    login(client)
+    r = client.post("/admin/activity/%d/lottery" % aid, data={"count": "1"})
+    assert r.status_code == 200
+    d = r.get_json()
+    assert d["ok"] is True
+    assert len(d["round"]["winners"]) == 1
+    assert d["round"]["winners"][0]["name"] == "张三"
+
+
+def test_winner_items_keeps_only_dict_entries():
+    """winner_items 只返回 dict 元素，脏数据被跳过。"""
+    items = app_lottery.winner_items(
+        ["oops", {"name": "张三", "campus": "敬慧路校区"}, None, 5, {"name": "李四"}])
+    assert items == [
+        {"name": "张三", "campus": "敬慧路校区"},
+        {"name": "李四"},
+    ]
+    assert app_lottery.winner_items(None) == []
+    assert app_lottery.winner_items([]) == []
+
+
+def test_past_winner_keys_ignores_malformed_entries(app):
+    """历史轮次含畸形中奖人时，past_winner_keys 不抛异常且只统计合法条目。"""
+    aid = app.config["TEST_ACTIVITY_ID"]
+    with app.app_context():
+        act = db.session.get(Activity, aid)
+        app_lottery.save_round(
+            act, [{"name": "张三", "campus": "敬慧路校区", "phone": "13800000001"}],
+            1, True, None)
+        db.session.add(LotteryRound(
+            activity_id=aid, draw_count=1,
+            winners_json='["oops"]', excluded=True, operator_id=None,
+        ))
+        db.session.commit()
+        keys = app_lottery.past_winner_keys(act)
+        assert keys == {app_lottery.person_key("张三", "敬慧路校区", "13800000001")}

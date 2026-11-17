@@ -5,7 +5,7 @@ from flask_login import current_user, login_required
 
 from ..access import get_managed_activity, live_payload
 from ..extensions import db
-from ..lottery import recent_rounds
+from ..lottery import recent_rounds, winner_items
 from ..models import Activity, CheckIn
 
 bp = Blueprint("api", __name__)
@@ -86,8 +86,7 @@ def _public_round(round_data):
     public = dict(round_data)
     public["winners"] = [
         {"name": w.get("name", ""), "campus": w.get("campus", "")}
-        for w in (round_data.get("winners") or [])
-        if isinstance(w, dict)
+        for w in winner_items(round_data.get("winners"))
     ]
     return public
 

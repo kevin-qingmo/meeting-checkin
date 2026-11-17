@@ -29,11 +29,21 @@ def candidate_pool(activity):
     return pool
 
 
+def winner_items(winners):
+    """从中奖人列表中取出合法的（dict）条目，跳过脏数据。
+
+    winners_json 是库里的原始文本，可能被写成合法 JSON list 但元素并非 dict
+    （如 '["oops"]'）。所有按元素取字段的地方都必须先过这一层，
+    否则脏数据会让接口抛 AttributeError。
+    """
+    return [w for w in (winners or []) if isinstance(w, dict)]
+
+
 def past_winner_keys(activity):
     """该活动所有历史轮次中奖人的去重键集合。"""
     keys = set()
     for row in LotteryRound.query.filter_by(activity_id=activity.id).all():
-        for w in row.winners:
+        for w in winner_items(row.winners):
             keys.add(person_key(w.get("name"), w.get("campus"), w.get("phone")))
     return keys
 
